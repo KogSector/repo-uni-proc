@@ -203,11 +203,7 @@ impl UnifiedProcessor {
                 .to_string_lossy()
                 .to_string();
 
-<<<<<<< HEAD
                 // ── Non-document files: existing HybridChunker path ──
-=======
-
->>>>>>> dd0d19e434eb362467bb596393ff48c0e4fa8803
                 let content = match tokio::fs::read_to_string(file_path).await {
                     Ok(c) => c,
                     Err(_) => {

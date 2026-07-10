@@ -202,17 +202,16 @@ impl LlmConfig {
 impl Config {
     pub fn from_env() -> crate::core::Result<Self> {
         let host = std::env::var("HOST").unwrap_or_else(|_| "0.0.0.0".to_string());
-        let port = std::env::var("UNIFIED_PROCESSOR_PORT")
-            .or_else(|_| std::env::var("HTTP_PORT"))
-            .unwrap_or_else(|_| "8090".to_string())
-            .parse()
-            .unwrap_or(8090);
+        let port = std::env::var("PORT")
+            .unwrap_or_else(|_| "8091".to_string())
+            .parse::<u16>()
+            .unwrap_or(8091);
         
         let grpc_host = std::env::var("GRPC_HOST").unwrap_or_else(|_| "0.0.0.0".to_string());
         let grpc_port = std::env::var("GRPC_PORT")
-            .unwrap_or_else(|_| "50051".to_string())
+            .unwrap_or_else(|_| "50052".to_string())
             .parse()
-            .unwrap_or(50051);
+            .unwrap_or(50052);
         
         let auth_middleware_url = std::env::var("AUTH_MIDDLEWARE_URL")
             .map_err(|_| crate::core::error::ProcessorError::ConfigError("AUTH_MIDDLEWARE_URL must be set".to_string()))?;
