@@ -212,25 +212,18 @@ pub async fn get_code_metrics(
 ) -> Result<Json<CodeMetricsResponse>, StatusCode> {
     match processor.process_file(&request.content, false, &request.filename, "metrics-request", "unknown/repo", "system").await {
         Ok(data) => {
-            if let crate::core::orchestrator::ContentType::Code(code_data) = data.content_type {
-                Ok(Json(CodeMetricsResponse {
-                    success: true,
-                    metrics: Some(crate::processors::codebase::CodeMetrics {
-                        lines_of_code: code_data.metrics.lines_of_code,
-                        lines_of_comments: code_data.metrics.lines_of_comments,
-                        cyclomatic_complexity: code_data.metrics.cyclomatic_complexity,
-                        cognitive_complexity: code_data.metrics.cognitive_complexity,
-                        maintainability_index: code_data.metrics.maintainability_index,
-                    }),
-                    error: None,
-                }))
-            } else {
-                Ok(Json(CodeMetricsResponse {
-                    success: false,
-                    metrics: None,
-                    error: Some("File is not a code file".to_string()),
-                }))
-            }
+            let crate::core::orchestrator::ContentType::Code(code_data) = data.content_type;
+            Ok(Json(CodeMetricsResponse {
+                success: true,
+                metrics: Some(crate::processors::codebase::CodeMetrics {
+                    lines_of_code: code_data.metrics.lines_of_code,
+                    lines_of_comments: code_data.metrics.lines_of_comments,
+                    cyclomatic_complexity: code_data.metrics.cyclomatic_complexity,
+                    cognitive_complexity: code_data.metrics.cognitive_complexity,
+                    maintainability_index: code_data.metrics.maintainability_index,
+                }),
+                error: None,
+            }))
         }
         Err(e) => Ok(Json(CodeMetricsResponse {
             success: false,

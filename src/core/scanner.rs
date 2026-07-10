@@ -203,60 +203,6 @@ impl UnifiedProcessor {
                 .to_string_lossy()
                 .to_string();
 
-            // Check if it's a document type that Docling should handle
-            let is_document = file_path.extension()
-                .and_then(|e| e.to_str())
-                .map(|e| {
-                    let lower = e.to_lowercase();
-                    matches!(lower.as_str(), "pdf" | "docx" | "pptx" | "doc" | "ppt" | "html" | "htm" | "rtf" | "epub" | "md" | "markdown")
-                })
-                .unwrap_or(false);
-
-            if is_document {
-                // ── Pipeline-based structured document parsing ──
-                tracing::info!(path = %relative_path, "Parsing document with pipeline_parser");
-
-                let path_str = file_path.to_string_lossy().to_string();
-                
-                match self.document_parser.process_document_file(&path_str).await {
-                    Ok(parsed) => {
-                        let chunks = crate::processors::documents::parser::build_document_chunks(&parsed, &relative_path, source_id);
-                        total_chunks += chunks.len();
-                        processed += 1;
-
-                        tracing::info!(
-                            source_id = %source_id,
-                            file = %relative_path,
-                            sections = parsed.sections.len(),
-                            tables = parsed.tables.len(),
-                            chunks = chunks.len(),
-                            parser = %parsed.metadata.get("parser").and_then(|v| v.as_str()).unwrap_or("unknown"),
-                            "Document parsed and chunked via pipeline"
-                        );
-
-                        // Run security scan
-                        let mut chunks = chunks;
-                        for chunk in &mut chunks {
-                            crate::core::scanner::security::SecurityScanner::scan_chunk(chunk);
-                        }
-
-                        all_source_chunks.extend(chunks.clone());
-
-                        if let Err(e) = self.store_and_publish_chunks(chunks, source_id, None, user_id).await {
-                            tracing::error!(
-                                source_id = %source_id,
-                                file = %relative_path,
-                                error = %e,
-                                "Failed to embed and store document chunks"
-                            );
-                        }
-                    }
-                    Err(e) => {
-                        tracing::warn!(path = %relative_path, error = %e, "Pipeline script failed");
-                        skipped += 1;
-                    }
-                }
-            } else {
                 // ── Non-document files: existing HybridChunker path ──
                 let content = match tokio::fs::read_to_string(file_path).await {
                     Ok(c) => c,
@@ -301,7 +247,6 @@ impl UnifiedProcessor {
                             "Chunking failed, skipping file"
                         );
                         skipped += 1;
-                    }
                 }
             }
         }
