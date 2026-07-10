@@ -219,11 +219,50 @@ impl UnifiedProcessor {
     
 
     
+<<<<<<< HEAD
 
+=======
+    /// Handle a document processing request from gRPC
+    /// Flow: download doc → structure analysis → chunk → store chunks → cleanup
+    
+
+    /// Get chunk content by chunk ID.
+    /// First checks the in-memory cache, then falls back to FalkorDB.
+    
+
+    /// Generate content chunks from web page text.
+    ///
+    /// Uses the standard HybridChunker but with Web-typed fallback.
+    async fn generate_web_content_chunks(
+        &self,
+        content: &str,
+        url: &str,
+        source_id: &str,
+    ) -> Result<Vec<crate::core::chunking::Chunk>> {
+        use crate::core::chunking::{ChunkType, WebSemanticType};
+        use crate::core::chunking::ChunkingStrategy;
+
+        let config = crate::core::chunking::ChunkingConfig::from_env();
+
+        let mut result = self.chunker.process(content, url, source_id, &config)
+            .await
+            .map_err(|e| ProcessorError::InfraError(format!("Chunking failed: {}", e)))?;
+            
+        // Re-tag chunks as Web type (the HybridChunker may assign Document type)
+        for chunk in &mut result.chunks {
+            chunk.chunk_type = ChunkType::Web {
+                url: url.to_string(),
+                semantic_type: WebSemanticType::Paragraph,
+            };
+        }
+        Ok(result.chunks)
+    }
+>>>>>>> dd0d19e434eb362467bb596393ff48c0e4fa8803
 
     // ─── Legacy file processing (kept for gRPC health checks & direct calls) ──
     
     /// Process a single file (used by gRPC endpoint for backward compatibility)
+<<<<<<< HEAD
     pub async fn process_file(&self, content: &str, is_base64: bool, filename: &str, source_id: &str, repo_name: &str, user_id: &str) -> Result<ProcessedData> {
         let start_time = std::time::Instant::now();
         let file_id = Uuid::new_v4();
@@ -231,6 +270,11 @@ impl UnifiedProcessor {
         let content_type = self.detect_content_type(filename);
         
         let (processing_result, mut chunks) = match content_type {
+=======
+     with {} chunks", filename, doc_chunks.len());
+                (res, doc_chunks)
+            },
+>>>>>>> dd0d19e434eb362467bb596393ff48c0e4fa8803
             ContentType::Code(_) => {
                 let text = if is_base64 {
                     use base64::{Engine as _, engine::general_purpose::STANDARD};
@@ -757,6 +801,7 @@ impl UnifiedProcessor {
     }
 
     /// Extract and store relationships across all chunks in a source.
+<<<<<<< HEAD
     pub async fn extract_and_store_relationships(&self, chunks: &[crate::core::chunking::Chunk], source_id: &str, user_id: &str) -> Result<()> {
         let chunk_count = chunks.len();
         if chunk_count == 0 {
@@ -883,6 +928,9 @@ pub struct ProcessorCapabilities {
 }
 
 
+=======
+    
+>>>>>>> dd0d19e434eb362467bb596393ff48c0e4fa8803
 /// Helper: detect language from file path
 /// DSA: O(1) static HashMap lookup, zero per-call allocation.
 #[allow(dead_code)]
