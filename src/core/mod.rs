@@ -4,7 +4,6 @@ pub mod config;
 pub mod error;
 pub mod orchestrator;
 pub mod chunking;
-pub mod scanner;
 
 pub use config::Config;
 pub use error::{ProcessorError, Result};

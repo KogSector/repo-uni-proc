@@ -44,9 +44,7 @@ pub fn build_app_router(
         // Health endpoints
         .route("/", get(health_check))
         .route("/health", get(health_check))
-        // Internal service-to-service: process files already on the shared volume.
-        // Bypasses auth middleware since data-connector (internal) doesn't need a user token.
-        .route("/api/v1/process/local", post(process_local_directory))
+
         .merge(protected_routes)
         // Global Middleware stack
         .layer(axum::middleware::from_fn(crate::graph::correlation_middleware))
@@ -363,91 +361,3 @@ pub async fn get_status(State(state): State<Arc<AppState>>) -> Json<StatusRespon
     })
 }
 
-// ============================================================================
-// Local shared-volume processing (internal, service-to-service)
-// ============================================================================
-
-/// Posted by data-connector after downloading a source to the shared volume.
-///
-/// # AKS Portability
-/// `directory_path` is always inside the shared volume (`DOWNLOADS_BASE_PATH`).
-/// Locally: Docker named volume.  AKS: Azure Files PVC — no code change needed.
-#[derive(Debug, Deserialize)]
-pub struct LocalProcessRequest {
-    /// Source ID used for logging and metadata tagging.
-    pub source_id: String,
-    /// Absolute path to the directory to scan inside the shared volume,
-    /// e.g. `/shared/downloads/repos/<source_id>`.
-    pub directory_path: String,
-    pub user_id: Option<String>,
-}
-
-/// Immediate acknowledgement returned with 202 Accepted.
-#[derive(Debug, Serialize)]
-pub struct LocalProcessResponse {
-    pub accepted: bool,
-    pub source_id: String,
-    pub message: String,
-}
-
-/// Process files from a locally mounted shared volume directory.
-///
-/// Called internally by `data-connector` after it finishes downloading a source.
-/// Returns **202 Accepted** immediately; processing runs in a background tokio task
-/// so large repos do not cause HTTP timeouts.
-///
-/// `POST /api/v1/process/local`
-pub async fn process_local_directory(
-    State(processor): State<Arc<UnifiedProcessor>>,
-    Json(request): Json<LocalProcessRequest>,
-) -> impl IntoResponse {
-    let source_id = request.source_id.clone();
-    let directory_path = request.directory_path.clone();
-    let user_id = request.user_id.clone().unwrap_or_else(|| "system".to_string());
-
-    tracing::info!(
-        source_id = %source_id,
-        directory_path = %directory_path,
-        user_id = %user_id,
-        "Accepted local directory processing request"
-    );
-
-    // Clone the Arc<UnifiedProcessor> (cheap refcount bump) so the background
-    // task holds its own reference without needing UnifiedProcessor to be Clone.
-    let processor_clone = processor.clone();
-    tokio::spawn(async move {
-        let result = processor_clone.process_local_directory(&source_id, &directory_path, &user_id).await;
-        
-        // Always clean up the directory after processing, regardless of success or failure
-        tracing::info!(directory = %directory_path, "Cleaning up local directory after processing attempt");
-        if let Err(e) = std::fs::remove_dir_all(&directory_path) {
-            tracing::warn!(
-                directory = %directory_path,
-                error = %e,
-                "Failed to clean up local directory (it may have been already deleted or does not exist)"
-            );
-        }
-
-        if let Err(e) = result {
-            tracing::error!(
-                source_id = %source_id,
-                directory_path = %directory_path,
-                error = %e,
-                "Local directory processing failed"
-            );
-        }
-    });
-
-    (
-        StatusCode::ACCEPTED,
-        Json(LocalProcessResponse {
-            accepted: true,
-            source_id: request.source_id,
-            message: "Directory processing started in background".to_string(),
-        }),
-    )
-}
-
-
-
-// (Web removed)
