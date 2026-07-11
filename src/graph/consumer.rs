@@ -510,15 +510,9 @@ impl UnifiedEventConsumer {
                                             if let Some(edge_arr) = edge.as_array() {
                                                 if edge_arr.len() == 2 {
                                                     if let (Some(target_chunk_id), Some(score)) = (edge_arr[0].as_str(), edge_arr[1].as_f64()) {
-                                                        let query = format!(
-                                                            r#"MERGE (a:Vector_Chunk {{id: "{}"}}) MERGE (b:Vector_Chunk {{id: "{}"}}) MERGE (a)-[r:SIMILAR_TO {{score: {}}}]->(b)"#,
-                                                            chunk.id, target_chunk_id, score
-                                                        );
-                                                        if let Err(e) = user_graph.execute_query(&query).await {
-                                                            error!("[FalkorDB] Failed to create cross-graph edge: {}", e);
-                                                        } else {
-                                                            info!("[FalkorDB] Created SIMILAR_TO edge between {} and {}", chunk.id, target_chunk_id);
-                                                        }
+                                                        // Architecture Rule: fast-fetcher is strictly responsible for generating cross-graph edges.
+                                                        // We no longer write the SIMILAR_TO edge here. fast-fetcher will handle it.
+                                                        debug!("[fast-fetcher] Delegated SIMILAR_TO edge creation between {} and {} to fast-fetcher", chunk.id, target_chunk_id);
                                                     }
                                                 }
                                             }
