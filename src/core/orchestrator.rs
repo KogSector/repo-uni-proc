@@ -698,59 +698,7 @@ impl UnifiedProcessor {
             );
         }
 
-        // ── Step 1.5: Store chunks DIRECTLY in FalkorDB (without embeddings) ──
-        // This ensures the knowledge graph is always populated, regardless of whether
-        // the embeddings-service processes them. Uses MERGE so the embeddings callback
-        // can update the node with the actual embedding vector later.
-        {
-            let mut chunks_stored = 0;
-            tracing::info!(
-                "[FalkorDB-Direct] Storing {} chunks directly in FalkorDB for source: {}",
-                chunk_count, source_id
-            );
 
-            for c in chunks.iter() {
-                let composite_id = format!("{}|{}", c.chunk_key, c.file_path);
-                let repo_file_path = format!("{}/{}", source_id, c.file_path);
-                let chunk_type_str = format!("{:?}", c.chunk_type);
-                let metadata = serde_json::json!({
-                    "confidence": c.confidence,
-                    "level": format!("{:?}", c.level),
-                    "user_id": user_id,
-                });
-                // Empty embedding — will be filled by the embeddings callback if it arrives
-                let empty_embedding: Vec<f32> = vec![];
-                let language_str = match &c.chunk_type {
-                    crate::core::chunking::types::ChunkType::Code { language, .. } => language.clone(),
-                    _ => "unknown".to_string(),
-                };
-
-                if let Err(e) = user_graph.store_chunk_with_embedding(
-                    &composite_id,
-                    source_id,
-                    &c.content,
-                    &empty_embedding,
-                    &chunk_type_str,
-                    &metadata,
-                    "none",  // model = "none" until embeddings arrive
-                    user_id,
-                    &repo_file_path,
-                    &language_str,
-                ).await {
-                    tracing::warn!(
-                        "[FalkorDB-Direct] Failed to store chunk {} in FalkorDB: {}",
-                        composite_id, e
-                    );
-                } else {
-                    chunks_stored += 1;
-                }
-            }
-
-            tracing::info!(
-                "[FalkorDB-Direct] Stored {}/{} chunks directly in FalkorDB for source: {}",
-                chunks_stored, chunk_count, source_id
-            );
-        }
 
         tracing::info!("store_and_publish_chunks completed successfully for source_id={}", source_id);
         Ok(())
