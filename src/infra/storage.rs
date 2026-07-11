@@ -1167,6 +1167,7 @@ impl FalkordbStorage {
 
         let cypher = format!(
             r#"MERGE (e:Code_Entity {{qualified_name: "{qname_esc}"}})
+               ON CREATE SET e.created_at = {now}
                SET e.id          = "{entity_id}",
                    e.name        = "{name_esc}",
                    e.entity_type = "{type_esc}",
@@ -1179,7 +1180,6 @@ impl FalkordbStorage {
                    e.metadata    = "{metadata_esc}",
                    e.owner_id    = "{owner_id_esc}",
                    e.updated_at  = {now}
-               ON CREATE SET e.created_at = {now}
             "#
         );
 
@@ -1290,6 +1290,7 @@ impl FalkordbStorage {
 
         let cypher = format!(
             r#"MERGE (r:Repository {{id: "{repo_id}"}})
+               ON CREATE SET r.created_at = {now}
                SET r.name        = "{name_esc}",
                    r.url         = "{url_esc}",
                    r.branch      = "{branch_esc}",
@@ -1297,7 +1298,6 @@ impl FalkordbStorage {
                    r.repo_type   = "{type_esc}",
                    r.owner_id    = "{owner_id_esc}",
                    r.updated_at  = {now}
-               ON CREATE SET r.created_at = {now}
             "#
         );
 
@@ -1372,6 +1372,7 @@ impl FalkordbStorage {
 
         let cypher = format!(
             r#"MERGE (p:Web_Page {{url: "{url_esc}"}})
+               ON CREATE SET p.created_at = {now}
                SET p.domain     = "{domain_esc}",
                    p.title      = "{title_esc}",
                    p.description = "{desc_esc}",
@@ -1379,7 +1380,6 @@ impl FalkordbStorage {
                    p.source_id  = "{source_id}",
                    p.owner_id   = "{owner_id_esc}",
                    p.updated_at = {now}
-               ON CREATE SET p.created_at = {now}
             "#
         );
 
