@@ -352,6 +352,70 @@ impl UnifiedEventConsumer {
                     }
                     info!("[FalkorDB] Successfully stored chunk_id={} for source_id={}", chunk.id, emb_event.source_id);
 
+                    // Extract semantic type for Code_Entity creation
+                    if chunk.chunk_type.contains("Code {") {
+                        let entity_type = if chunk.chunk_type.contains("Function") {
+                            Some("Function")
+                        } else if chunk.chunk_type.contains("Class") {
+                            Some("Class")
+                        } else if chunk.chunk_type.contains("CodeBlock") {
+                            Some("Snippet")
+                        } else if chunk.chunk_type.contains("File") {
+                            Some("File")
+                        } else {
+                            None
+                        };
+
+                        if let Some(etype) = entity_type {
+                            let parts: Vec<&str> = chunk.id.split('|').collect();
+                            let entity_name = if parts.len() > 4 { parts[4] } else { &chunk.id };
+                            
+                            // Extract qualified name
+                            let qname = format!("{}::{}", repo_file_path, entity_name);
+
+                            if let Err(e) = user_graph.store_entity(
+                                &chunk.id,
+                                entity_name,
+                                &qname,
+                                etype,
+                                &emb_event.source_id,
+                                &repo_file_path,
+                                0,
+                                0,
+                                None,
+                                None,
+                                &serde_json::json!({}),
+                                user_id
+                            ).await {
+                                debug!("Failed to store semantic entity for chunk {}: {}", chunk.id, e);
+                            } else {
+                                // Connect to the Vector_Chunk
+                                let link_query = format!(
+                                    r#"MATCH (e:Code_Entity {{id: "{}"}}) MATCH (c:Vector_Chunk {{id: "{}"}}) MERGE (e)-[:HAS_CHUNK]->(c)"#,
+                                    chunk.id, chunk.id
+                                );
+                                let _ = user_graph.execute_query(&link_query).await;
+                                
+                                // Connect to Repository (or File)
+                                if etype == "File" {
+                                    let link_query = format!(
+                                        r#"MATCH (r:Repository {{id: "{}"}}) MATCH (e:Code_Entity {{id: "{}"}}) MERGE (r)-[:CONTAINS]->(e)"#,
+                                        emb_event.source_id, chunk.id
+                                    );
+                                    let _ = user_graph.execute_query(&link_query).await;
+                                } else {
+                                    // It's a Function, Class, or Snippet. Link it to the File.
+                                    // We match the File entity by file_path
+                                    let link_query = format!(
+                                        r#"MATCH (f:Code_Entity {{entity_type: "File", file_path: "{}"}}) MATCH (e:Code_Entity {{id: "{}"}}) MERGE (f)-[:CONTAINS]->(e)"#,
+                                        repo_file_path, chunk.id
+                                    );
+                                    let _ = user_graph.execute_query(&link_query).await;
+                                }
+                            }
+                        }
+                    }
+
                     // --- NEXT_CHUNK LINKING ---
                     // Connect this chunk to the next chunk in the sequence
                     if i < chunks_len - 1 {

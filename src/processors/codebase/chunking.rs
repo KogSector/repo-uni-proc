@@ -65,7 +65,39 @@ pub fn extract_ast_chunks(
     // If we have granular defined nodes, create chunks for them
     if let Some(ast) = &mut ast_data {
         let bytes = content.as_bytes();
-        for node in &ast.defined_nodes {
+        let mut sorted_nodes = ast.defined_nodes.clone();
+        sorted_nodes.sort_by_key(|n| n.start_byte);
+        
+        let mut last_end = 0;
+        
+        for node in &sorted_nodes {
+            if node.start_byte > last_end && node.start_byte <= bytes.len() {
+                // Extract loose code between last_end and node.start_byte
+                let gap_bytes = &bytes[last_end..node.start_byte];
+                if let Ok(snippet) = std::str::from_utf8(gap_bytes) {
+                    if snippet.trim().len() > 0 {
+                        let node_hash = compute_normalized_hash(snippet, language);
+                        let mut loose_chunk = Chunk::new_stable(
+                            source_id.to_string(),
+                            file_path.to_string(),
+                            snippet.to_string(),
+                            ChunkType::Code {
+                                language: language.to_string(),
+                                semantic_type: CodeSemanticType::CodeBlock,
+                            },
+                            ChunkLevel::Semantic,
+                            &format!("loose_code_{}", last_end),
+                            &node_hash,
+                        );
+                        loose_chunk.metadata.line_range = Some((
+                            content[..last_end].lines().count().max(1),
+                            content[..node.start_byte].lines().count().max(1)
+                        ));
+                        chunks.push(loose_chunk);
+                    }
+                }
+            }
+            
             if node.end_byte > node.start_byte && node.end_byte <= bytes.len() {
                 if let Ok(snippet) = std::str::from_utf8(&bytes[node.start_byte..node.end_byte]) {
                     let sem_type = if node.node_type == "Class" {
@@ -97,6 +129,36 @@ pub fn extract_ast_chunks(
                     }
                     
                     chunks.push(node_chunk);
+                }
+                if node.end_byte > last_end {
+                    last_end = node.end_byte;
+                }
+            }
+        }
+        
+        // Extract remaining loose code after the last node
+        if last_end < bytes.len() {
+            let gap_bytes = &bytes[last_end..];
+            if let Ok(snippet) = std::str::from_utf8(gap_bytes) {
+                if snippet.trim().len() > 0 {
+                    let node_hash = compute_normalized_hash(snippet, language);
+                    let mut loose_chunk = Chunk::new_stable(
+                        source_id.to_string(),
+                        file_path.to_string(),
+                        snippet.to_string(),
+                        ChunkType::Code {
+                            language: language.to_string(),
+                            semantic_type: CodeSemanticType::CodeBlock,
+                        },
+                        ChunkLevel::Semantic,
+                        &format!("loose_code_{}", last_end),
+                        &node_hash,
+                    );
+                    loose_chunk.metadata.line_range = Some((
+                        content[..last_end].lines().count().max(1),
+                        content.lines().count().max(1)
+                    ));
+                    chunks.push(loose_chunk);
                 }
             }
         }

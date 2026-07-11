@@ -11,7 +11,7 @@ use crate::processors::codebase::CodeAnalyzer;
 use crate::infra::storage::{PostgresStorage, GraphSync};
 use crate::graph::extractors::{SourceRelationshipRouter, SemanticExtractor};
 use serde::{Deserialize, Serialize};
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::sync::{Arc, Mutex, LazyLock};
 use uuid::Uuid;
 
