@@ -1659,7 +1659,7 @@ pub async fn create_falkordb_storage(
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 /// Parses FalkorDB `--compact` response to generic JSON structure
-fn parse_graphdb_response(res: redis::Value, expected_headers: &[&str]) -> Vec<Value> {
+pub fn parse_graphdb_response(res: redis::Value, expected_headers: &[&str]) -> Vec<Value> {
     // A compact response is typically:
     // [ [headers array], [ [row 1 values array], [row 2 values array] ], [stats array] ]
     let mut out = Vec::new();

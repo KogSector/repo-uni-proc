@@ -766,7 +766,7 @@ impl UnifiedProcessor {
         // ── Step 2.5: Cross-file Symbol Resolution (formerly 2.75) ──
         tracing::info!("Building cross-file symbol index for {} chunks", chunk_count);
         let symbol_index = crate::processors::codebase::symbol::SymbolIndex::build(chunks);
-        let symbol_rels = symbol_index.resolve_cross_file_references(chunks);
+        let symbol_rels = symbol_index.resolve_cross_file_references_db(chunks, source_id, &user_graph).await;
         tracing::info!("Resolved {} cross-file symbol references", symbol_rels.len());
         relationships.extend(symbol_rels);
 

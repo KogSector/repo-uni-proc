@@ -6,7 +6,9 @@
 
 use crate::core::chunking::Chunk;
 use crate::graph::models::{ChunkRelationship, ChunkRelationType, RelationshipEvidence};
+use crate::infra::storage::FalkordbStorage;
 use fnv::FnvHashMap;
+use std::collections::HashSet;
 use uuid::Uuid;
 
 /// A cross-file symbol index used for deterministic cross-chunk resolution.
@@ -262,6 +264,143 @@ impl SymbolIndex {
                                 new_edges.push(edge);
                             }
                         }
+                    }
+                }
+            }
+        }
+
+        new_edges
+    }
+
+    /// Resolve function calls, instantiations, and type references by querying FalkorDB for targets missing from the current file.
+    pub async fn resolve_cross_file_references_db(
+        &self,
+        chunks: &[Chunk],
+        source_id: &str,
+        user_graph: &FalkordbStorage,
+    ) -> Vec<ChunkRelationship> {
+        // First get the intra-file edges
+        let mut new_edges = self.resolve_cross_file_references(chunks);
+
+        let mut missing_functions = HashSet::new();
+        let mut missing_classes = HashSet::new();
+        let mut missing_imports = HashSet::new();
+
+        // Collect unresolved cross-file targets
+        for chunk in chunks {
+            if let Some(ast_data) = &chunk.metadata.ast_data {
+                for fn_call in &ast_data.function_calls {
+                    if !self.function_definitions.contains_key(fn_call) {
+                        missing_functions.insert((chunk.id, fn_call.clone()));
+                    }
+                }
+                for decorator in &ast_data.decorators {
+                    if !self.function_definitions.contains_key(decorator) && !self.class_and_type_definitions.contains_key(decorator) {
+                        missing_functions.insert((chunk.id, decorator.clone()));
+                    }
+                }
+                for inst in &ast_data.instantiations {
+                    if !self.class_and_type_definitions.contains_key(inst) {
+                        missing_classes.insert((chunk.id, inst.clone()));
+                    }
+                }
+                for type_ref in &ast_data.type_references {
+                    if !self.class_and_type_definitions.contains_key(&type_ref.type_name) {
+                        missing_classes.insert((chunk.id, type_ref.type_name.clone()));
+                    }
+                }
+                for class_inherits in &ast_data.parent_classes {
+                    if !self.class_and_type_definitions.contains_key(class_inherits) {
+                        missing_classes.insert((chunk.id, class_inherits.clone()));
+                    }
+                }
+                for imp in &ast_data.import_paths {
+                    let basename = imp.split('/').last().unwrap_or(imp).split('.').next().unwrap_or(imp);
+                    if !self.file_paths.contains_key(basename) {
+                        missing_imports.insert((chunk.id, basename.to_string(), imp.clone()));
+                    }
+                }
+            }
+        }
+
+        // Helper to run query and parse single ID returns
+        async fn resolve_batch(query: &str, user_graph: &FalkordbStorage) -> std::collections::HashMap<String, String> {
+            let mut resolved = std::collections::HashMap::new();
+            if let Ok(res) = user_graph.execute_query(query).await {
+                let parsed = crate::infra::storage::parse_graphdb_response(res, &["key", "id"]);
+                for row in parsed {
+                    if let (Some(key), Some(id)) = (row.get("key").and_then(|v| v.as_str()), row.get("id").and_then(|v| v.as_str())) {
+                        resolved.insert(key.to_string(), id.to_string());
+                    }
+                }
+            }
+            resolved
+        }
+
+        // 1. Resolve missing functions
+        if !missing_functions.is_empty() {
+            let func_names: Vec<String> = missing_functions.iter().map(|(_, name)| format!("'{}'", name.replace('\'', ""))).collect();
+            let query = format!(
+                "WITH [{}] AS names UNWIND names AS name MATCH (c:Vector_Chunk {{source_id: '{}'}}) WHERE c.chunk_key = 'Function_' + name RETURN name AS key, c.id AS id",
+                func_names.join(", "), source_id
+            );
+            let resolved_funcs = resolve_batch(&query, user_graph).await;
+            for (chunk_id, fn_call) in &missing_functions {
+                if let Some(target_id) = resolved_funcs.get(fn_call) {
+                    if let Ok(target_uuid) = Uuid::parse_str(target_id) {
+                        new_edges.push(ChunkRelationship::new(
+                            *chunk_id, target_uuid, ChunkRelationType::FunctionCalls, 0.8
+                        ).with_evidence(vec![RelationshipEvidence {
+                            evidence_type: "inferred_function_call".to_string(),
+                            location: "falkordb_cross_file".to_string(),
+                            snippet: Some(fn_call.clone()),
+                        }]));
+                    }
+                }
+            }
+        }
+
+        // 2. Resolve missing classes/types
+        if !missing_classes.is_empty() {
+            let class_names: Vec<String> = missing_classes.iter().map(|(_, name)| format!("'{}'", name.replace('\'', ""))).collect();
+            let query = format!(
+                "WITH [{}] AS names UNWIND names AS name MATCH (c:Vector_Chunk {{source_id: '{}'}}) WHERE c.chunk_key = 'Class_' + name RETURN name AS key, c.id AS id",
+                class_names.join(", "), source_id
+            );
+            let resolved_classes = resolve_batch(&query, user_graph).await;
+            for (chunk_id, class_name) in &missing_classes {
+                if let Some(target_id) = resolved_classes.get(class_name) {
+                    if let Ok(target_uuid) = Uuid::parse_str(target_id) {
+                        new_edges.push(ChunkRelationship::new(
+                            *chunk_id, target_uuid, ChunkRelationType::TypeReference, 0.7
+                        ).with_evidence(vec![RelationshipEvidence {
+                            evidence_type: "inferred_type_ref".to_string(),
+                            location: "falkordb_cross_file".to_string(),
+                            snippet: Some(class_name.clone()),
+                        }]));
+                    }
+                }
+            }
+        }
+
+        // 3. Resolve missing imports
+        if !missing_imports.is_empty() {
+            let import_names: Vec<String> = missing_imports.iter().map(|(_, name, _)| format!("'{}'", name.replace('\'', ""))).collect();
+            let query = format!(
+                "WITH [{}] AS names UNWIND names AS name MATCH (c:Vector_Chunk {{source_id: '{}', chunk_key: 'file_scope'}}) WHERE c.file_path CONTAINS name RETURN name AS key, c.id AS id",
+                import_names.join(", "), source_id
+            );
+            let resolved_imports = resolve_batch(&query, user_graph).await;
+            for (chunk_id, basename, full_import) in &missing_imports {
+                if let Some(target_id) = resolved_imports.get(basename) {
+                    if let Ok(target_uuid) = Uuid::parse_str(target_id) {
+                        new_edges.push(ChunkRelationship::new(
+                            *chunk_id, target_uuid, ChunkRelationType::FileImports, 0.9
+                        ).with_evidence(vec![RelationshipEvidence {
+                            evidence_type: "inferred_import".to_string(),
+                            location: "falkordb_cross_file".to_string(),
+                            snippet: Some(full_import.clone()),
+                        }]));
                     }
                 }
             }
