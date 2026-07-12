@@ -343,12 +343,12 @@ impl SourceRelationshipExtractor for CodeExtractor {
             // ── File defines entity ──────────────────────────────────────────
             if !matches!(chunk_type, ChunkType::Code { semantic_type: CodeSemanticType::File, .. }) {
                 if let Some(&file_id) = file_to_chunk.get(*file_path) {
-                    if file_id != *chunk_id && seen_edges.insert((file_id, *chunk_id, "defines")) {
+                    if file_id != *chunk_id && seen_edges.insert((*chunk_id, file_id, "defined_in")) {
                         relationships.push(
                             ChunkRelationship::new(
-                                file_id,
                                 *chunk_id,
-                                ChunkRelationType::Defines,
+                                file_id,
+                                ChunkRelationType::DefinedIn,
                                 1.0,
                             )
                             .with_evidence(vec![RelationshipEvidence {
@@ -358,8 +358,8 @@ impl SourceRelationshipExtractor for CodeExtractor {
                             }])
                             .with_metadata(ChunkRelationshipMetadata {
                                 extraction_method: "structural".to_string(),
-                                source_chunk_type: "file".to_string(),
-                                target_chunk_type: "entity".to_string(),
+                                source_chunk_type: "entity".to_string(),
+                                target_chunk_type: "file".to_string(),
                                 ..Default::default()
                             }),
                         );
