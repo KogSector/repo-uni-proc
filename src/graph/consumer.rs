@@ -331,17 +331,9 @@ impl UnifiedEventConsumer {
                 let repo_file_path = format!("{}/{}", repo_name_str, chunk.file_id);
                 let language_str = chunk.language.as_deref().unwrap_or("unknown");
 
-                if let Err(e) = user_graph.store_chunk_with_embedding(
+                if let Err(e) = user_graph.update_chunk_embedding(
                     &chunk.id,
-                    &emb_event.source_id,
-                    &content,
                     &chunk.embedding,
-                    &chunk.chunk_type,
-                    &serde_json::json!({"language": chunk.language, "model": chunk.model, "dimension": chunk.dimension}),
-                    &chunk.model,
-                    user_id,
-                    &repo_file_path,
-                    language_str,
                 ).await {
                     error!("Failed to store chunk {} in FalkorDB: {}", chunk.id, e);
                 } else {

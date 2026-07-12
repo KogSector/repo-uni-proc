@@ -620,9 +620,54 @@ impl UnifiedProcessor {
             tracing::info!("Cached {} new chunks in-memory for source: {}", chunk_count, source_id);
         }
 
+        // ── Step 1.5: Store chunks DIRECTLY in FalkorDB (without embeddings) ──
+        {
+            tracing::info!(
+                "[FalkorDB-Direct] Storing {} chunks directly in FalkorDB for source: {}",
+                chunk_count, source_id
+            );
+
+            for c in chunks.iter() {
+                let composite_id = format!("{}|{}", c.chunk_key, c.file_path);
+                let repo_file_path = format!("{}/{}", source_id, c.file_path);
+                let chunk_type_str = format!("{:?}", c.chunk_type);
+                let metadata = serde_json::to_value(&c.metadata).unwrap_or(serde_json::json!({
+                    "confidence": c.confidence,
+                    "level": format!("{:?}", c.level),
+                    "user_id": user_id,
+                }));
+                // Empty embedding — will be filled by the embeddings callback if it arrives
+                let empty_embedding: Vec<f32> = vec![];
+                let language_str = match &c.chunk_type {
+                    crate::core::chunking::types::ChunkType::Code { language, .. } => language.clone(),
+                    _ => "unknown".to_string(),
+                };
+
+                if let Err(e) = user_graph.store_chunk_with_embedding(
+                    &composite_id,
+                    source_id,
+                    &c.content,
+                    &empty_embedding,
+                    &chunk_type_str,
+                    &metadata,
+                    "none",  // model = "none" until embeddings arrive
+                    user_id,
+                    &repo_file_path,
+                    &language_str,
+                ).await {
+                    tracing::error!("Failed to direct-store chunk {} in FalkorDB: {}", composite_id, e);
+                }
+            }
+        }
+
+        // ── Step 1.6: Extract intra-file relationships ──
+        if let Err(e) = self.extract_and_store_relationships(&chunks, source_id, user_id).await {
+            tracing::warn!("Failed to extract intra-file relationships: {}", e);
+        }
+
         // ── Step 2: Send chunks to embeddings-service via Kafka for embedding generation ──
         // NOTE: This is best-effort. If the embeddings-service is down, chunks are still
-        // stored directly in FalkorDB (Step 2.5 below). When the embeddings callback
+        // stored directly in FalkorDB (Step 1.5 above). When the embeddings callback
         // arrives later, it will MERGE-update the node with the actual embedding vector.
         {
             tracing::info!("Creating ChunkEventPublisher for Kafka publishing");

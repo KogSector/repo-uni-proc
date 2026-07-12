@@ -1005,6 +1005,21 @@ impl FalkordbStorage {
 
     // ─── Write operations ────────────────────────────────────────────────────
 
+    pub async fn update_chunk_embedding(
+        &self,
+        chunk_id: &str,
+        embedding: &[f32],
+    ) -> Result<()> {
+        let embedding_str = format!("{:?}", embedding);
+        let cypher = format!(
+            r#"MATCH (c:Vector_Chunk {{id: "{chunk_id}"}})
+               SET c.embeddings = vecf32({embedding_str})
+            "#
+        );
+        self.execute_query(&cypher).await?;
+        Ok(())
+    }
+
     pub async fn store_chunk_with_embedding(
         &self,
         chunk_id: &str,
