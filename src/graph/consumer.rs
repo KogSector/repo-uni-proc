@@ -260,19 +260,18 @@ impl UnifiedEventConsumer {
     }
 
     async fn handle_event(processor: Arc<UnifiedProcessor>, event_json: serde_json::Value) -> anyhow::Result<()> {
-        debug!("Processing raw event: (type {})", event_json.get("type").and_then(|v| v.as_str()).unwrap_or("unknown"));
-
+        // Removed noisy Processing raw event log
 
 
         // 1.5. Try RepoUpdated (from webhooks)
-        if let Ok(repo_updated) = serde_json::from_value::<RepoUpdated>(event_json.clone()) {
-            info!("Ignoring RepoUpdated event for repo: {} (handled by data-connector HTTP streaming)", repo_updated.payload.repo_id);
+        if let Ok(_repo_updated) = serde_json::from_value::<RepoUpdated>(event_json.clone()) {
+            // Silently ignore RepoUpdated event (handled by data-connector HTTP streaming)
             return Ok(());
         }
 
         // 1.6 Try RepoIngestRequested (handled by data-connector now)
-        if let Ok(repo_req) = serde_json::from_value::<RepoIngestRequested>(event_json.clone()) {
-            info!("Ignoring RepoIngestRequested event for repo: {} (handled by data-connector streaming API)", repo_req.payload.repo_id);
+        if let Ok(_repo_req) = serde_json::from_value::<RepoIngestRequested>(event_json.clone()) {
+            // Silently ignore RepoIngestRequested event (handled by data-connector streaming API)
             return Ok(());
         }
 
@@ -299,12 +298,12 @@ impl UnifiedEventConsumer {
 
         // 2. Try SimplifiedEmbeddingGeneratedEvent
         if let Ok(emb_event) = serde_json::from_value::<SimplifiedEmbeddingGeneratedEvent>(event_json.clone()) {
-            info!("Handling SimplifiedEmbeddingGeneratedEvent: source_id={}, chunks={}", emb_event.source_id, emb_event.chunks.len());
-
             if emb_event.repo_name.is_none() {
-                debug!("Skipping document embedding event in repo-uni-proc (source_id={})", emb_event.source_id);
+                // Silently skip document embedding event in repo-uni-proc
                 return Ok(());
             }
+
+            info!("Handling SimplifiedEmbeddingGeneratedEvent: source_id={}, chunks={}", emb_event.source_id, emb_event.chunks.len());
 
             let user_id = emb_event.metadata.user_id.as_deref().unwrap_or("system");
             let user_graph = processor.falkordb_storage.with_user_graph(user_id);
