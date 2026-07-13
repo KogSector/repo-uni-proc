@@ -209,7 +209,9 @@ impl UnifiedEventConsumer {
     }
 
     async fn start_consumer(&self, bootstrap_servers: &str, processor: Arc<UnifiedProcessor>) -> anyhow::Result<()> {
-        let consumer = EventConsumer::new(bootstrap_servers, "unified-processor-group")
+        let group_id = std::env::var("UNIFIED_PROCESSOR_KAFKA_GROUP_ID")
+            .unwrap_or_else(|_| "repo-uni-proc-group".to_string());
+        let consumer = EventConsumer::new(bootstrap_servers, &group_id)
             .map_err(|e| anyhow::anyhow!("Failed to create Kafka consumer: {}", e))?;
 
 
@@ -298,6 +300,11 @@ impl UnifiedEventConsumer {
         // 2. Try SimplifiedEmbeddingGeneratedEvent
         if let Ok(emb_event) = serde_json::from_value::<SimplifiedEmbeddingGeneratedEvent>(event_json.clone()) {
             info!("Handling SimplifiedEmbeddingGeneratedEvent: source_id={}, chunks={}", emb_event.source_id, emb_event.chunks.len());
+
+            if emb_event.repo_name.is_none() {
+                debug!("Skipping document embedding event in repo-uni-proc (source_id={})", emb_event.source_id);
+                return Ok(());
+            }
 
             let user_id = emb_event.metadata.user_id.as_deref().unwrap_or("system");
             let user_graph = processor.falkordb_storage.with_user_graph(user_id);
