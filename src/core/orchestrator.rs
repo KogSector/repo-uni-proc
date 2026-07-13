@@ -161,7 +161,7 @@ pub struct RepoUpdateRequest {
 // ─── Orchestrator ───────────────────────────────────────────────────────────
 
 pub struct UnifiedProcessor {
-    config: Config,
+    _config: Config,
     code_analyzer: CodeAnalyzer,
     pub postgres_storage: Arc<PostgresStorage>,
     graph_sync: Arc<GraphSync>,
@@ -202,7 +202,7 @@ impl UnifiedProcessor {
 
 
         Ok(Self {
-            config,
+            _config: config,
             code_analyzer,
             postgres_storage,
             graph_sync,
