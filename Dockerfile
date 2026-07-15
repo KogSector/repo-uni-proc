@@ -56,7 +56,7 @@ RUN mkdir -p \
 
 # Cache dependencies
 RUN cargo build --release 2>/dev/null; \
-    find target/release/.fingerprint -name "unified*" -delete 2>/dev/null; \
+    find target/release/.fingerprint -name "unified*" -delete -o -name "repo*" -delete 2>/dev/null; \
     true
 
 # ---------------------------------------------------------------------------
