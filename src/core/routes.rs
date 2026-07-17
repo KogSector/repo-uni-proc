@@ -199,7 +199,7 @@ pub struct CodeMetricsRequest {
 #[derive(Debug, Serialize)]
 pub struct CodeMetricsResponse {
     pub success: bool,
-    pub metrics: Option<crate::processors::codebase::CodeMetrics>,
+    pub metrics: Option<crate::processors::CodeMetrics>,
     pub error: Option<String>,
 }
 
@@ -212,7 +212,7 @@ pub async fn get_code_metrics(
             let crate::core::orchestrator::ContentType::Code(code_data) = data.content_type;
             Ok(Json(CodeMetricsResponse {
                 success: true,
-                metrics: Some(crate::processors::codebase::CodeMetrics {
+                metrics: Some(crate::processors::CodeMetrics {
                     lines_of_code: code_data.metrics.lines_of_code,
                     lines_of_comments: code_data.metrics.lines_of_comments,
                     cyclomatic_complexity: code_data.metrics.cyclomatic_complexity,

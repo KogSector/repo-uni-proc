@@ -690,7 +690,7 @@ impl GraphSync {
 
         tracing::info!("GraphSync: Fetched {} code chunks for cross-file resolution", chunks.len());
 
-        let symbol_index = crate::processors::codebase::symbol::SymbolIndex::build(&chunks);
+        let symbol_index = crate::processors::symbol::SymbolIndex::build(&chunks);
         let mut symbol_rels = symbol_index.resolve_cross_file_references(&chunks);
 
         // Fallback: Connect chunks intelligently
@@ -839,7 +839,7 @@ pub struct GraphStatus {
     pub last_updated: String,
 }
 
-/// Chunk metadata — shared across storage backends
+/// Chunk metadata â€” shared across storage backends
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct ProcessedChunk {
     pub id: String,
@@ -877,7 +877,7 @@ use tracing::{info, warn};
 #[derive(Clone)]
 pub struct FalkordbStorage {
     pool: Arc<Pool<RedisConnectionManager>>,
-    /// Logical graph name — used in log messages and query prefixes.
+    /// Logical graph name â€” used in log messages and query prefixes.
     pub graph_name: String,
     /// Whether a vector index was successfully created at startup.
     _has_vector_index: bool,
@@ -938,7 +938,7 @@ impl FalkordbStorage {
         }
     }
 
-    // ─── Schema / index management ───────────────────────────────────────────
+    // â”€â”€â”€ Schema / index management â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     pub async fn create_vector_index(&self, index_name: &str, dimension: usize) -> Result<()> {
         let cypher = format!(
@@ -983,7 +983,7 @@ impl FalkordbStorage {
         Ok(())
     }
 
-    // ─── Write operations ────────────────────────────────────────────────────
+    // â”€â”€â”€ Write operations â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     pub async fn update_chunk_embedding(
         &self,
@@ -1113,11 +1113,11 @@ impl FalkordbStorage {
         );
 
         self.execute_query(&cypher).await?;
-        info!("Stored relationship '{}' between '{}' → '{}' in FalkorDB", rel_type, from_chunk_id, to_chunk_id);
+        info!("Stored relationship '{}' between '{}' â†’ '{}' in FalkorDB", rel_type, from_chunk_id, to_chunk_id);
         Ok(())
     }
 
-    // ─── Entity operations ───────────────────────────────────────────────────
+    // â”€â”€â”€ Entity operations â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     /// Ensure indexes exist for `Code_Entity` nodes.
     pub async fn ensure_entity_indexes(&self) -> Result<()> {
@@ -1222,7 +1222,7 @@ impl FalkordbStorage {
         );
 
         self.execute_query(&cypher).await?;
-        info!("Stored entity relationship '{}' between '{}' → '{}' in FalkorDB", rel_type, from_entity_qname, to_entity_qname);
+        info!("Stored entity relationship '{}' between '{}' â†’ '{}' in FalkorDB", rel_type, from_entity_qname, to_entity_qname);
         Ok(())
     }
 
@@ -1331,7 +1331,7 @@ impl FalkordbStorage {
         Ok(())
     }
 
-    // ─── Web page operations ─────────────────────────────────────────────────
+    // â”€â”€â”€ Web page operations â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     /// Ensure indexes exist for `Web_Page` nodes.
     /// Called once during startup alongside `ensure_indexes()`.
@@ -1420,7 +1420,7 @@ impl FalkordbStorage {
         Ok(())
     }
 
-    // ─── Read operations ─────────────────────────────────────────────────────
+    // â”€â”€â”€ Read operations â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     pub async fn get_chunks_by_source(&self, source_id: &str, owner_id: &str) -> Result<Vec<Value>> {
         let owner_id_esc = owner_id.replace('"', "\\\"");
@@ -1563,7 +1563,7 @@ impl FalkordbStorage {
     }
 }
 
-// ─── Graph statistics ─────────────────────────────────────────────────────────
+// â”€â”€â”€ Graph statistics â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 #[derive(Debug, Clone, Default)]
 pub struct GraphStats {
@@ -1571,7 +1571,7 @@ pub struct GraphStats {
     pub relationship_count: usize,
 }
 
-// ─── Factory function ─────────────────────────────────────────────────────────
+// â”€â”€â”€ Factory function â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 pub async fn create_falkordb_storage(
     host: &str,
@@ -1644,7 +1644,7 @@ pub async fn create_falkordb_storage(
     Ok(storage)
 }
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
+// â”€â”€â”€ Helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 /// Parses FalkorDB `--compact` response to generic JSON structure
 pub fn parse_graphdb_response(res: redis::Value, expected_headers: &[&str]) -> Vec<Value> {

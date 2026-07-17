@@ -40,7 +40,7 @@ pub fn extract_ast_chunks(
     content: &str,
     language: &str,
 ) -> Vec<Chunk> {
-    let mut ast_data = crate::processors::codebase::graph::extract_with_tree_sitter(content, language);
+    let mut ast_data = crate::processors::graph::extract_with_tree_sitter(content, language);
 
     let chunk_hash = compute_normalized_hash(content, language);
     let mut chunks = Vec::new();
@@ -124,7 +124,7 @@ pub fn extract_ast_chunks(
                     node_chunk.metadata.line_range = Some((node.start_line + 1, node.end_line + 1));
                     
                     // Extract ASTData specifically for this chunk so SymbolIndex creates granular edges
-                    if let Some(snippet_ast) = crate::processors::codebase::graph::extract_with_tree_sitter(snippet, language) {
+                    if let Some(snippet_ast) = crate::processors::graph::extract_with_tree_sitter(snippet, language) {
                         node_chunk.metadata.ast_data = Some(snippet_ast);
                     }
                     

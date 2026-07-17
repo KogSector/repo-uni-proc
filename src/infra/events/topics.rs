@@ -5,4 +5,3 @@ impl Topics {
     pub const CHUNKS_RAW: &'static str = "chunks.raw";
     pub const REPO_EVENTS: &'static str = "repo.events";
 }
-

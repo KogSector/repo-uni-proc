@@ -248,7 +248,7 @@ impl ChunkingStrategy for HybridChunker {
         let mut final_chunks = Vec::new();
 
         if let ChunkType::Code { language, .. } = &chunk_type {
-            let ast_chunks = crate::processors::codebase::chunking::extract_ast_chunks(
+            let ast_chunks = crate::processors::chunking::extract_ast_chunks(
                 source_id,
                 filename,
                 content,
