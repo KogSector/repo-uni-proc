@@ -49,6 +49,11 @@ async fn main() -> anyhow::Result<()> {
         "Starting unified-processor on {}",
         addr
     );
+
+    // Start HTTP server listener EARLY to satisfy Render's port scan
+    let listener = tokio::net::TcpListener::bind(addr).await?;
+    tracing::info!("Unified processor TCP listener bound on {}", addr);
+
 // Check Kafka health before starting (Kafka is required)
     check_kafka_health().await?;
     tracing::info!("Kafka on Aiven is initialized");
@@ -91,11 +96,7 @@ async fn main() -> anyhow::Result<()> {
 
     let app = build_app_router(processor.clone(), auth_layer, rate_limit);
 
-    // Start HTTP server
-    let listener = tokio::net::TcpListener::bind(addr).await?;
-    
-    tracing::info!("Unified processor listening on {}", addr);
-    
+    // Start HTTP server (listener was bound early)
     axum::serve(listener, app).await?;
 
     Ok(())
