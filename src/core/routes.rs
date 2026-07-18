@@ -33,7 +33,7 @@ pub fn build_app_router(
         .route("/api/v1/codebase/metrics", post(get_code_metrics))
         // Integration endpoints
         .route("/api/v1/graph/sync", post(trigger_graph_sync))
-        .route("/api/v1/status/{source_id}", get(get_processing_status))
+        .route("/api/v1/status/:source_id", get(get_processing_status))
         // Legacy compatibility endpoints
         .route("/api/v1/chunk", post(analyze_code))
         .layer(axum::middleware::from_fn_with_state(rate_limit.clone(), crate::infra::middleware::axum_rate_limit_middleware))
