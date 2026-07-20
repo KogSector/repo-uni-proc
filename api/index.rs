@@ -23,20 +23,12 @@ async fn main() -> anyhow::Result<()> {
     dotenvy::from_filename_override(".env.secret").ok();
     dotenvy::from_filename_override(".env.local").ok();
     // Initialize tracing
-    let file_appender = tracing_appender::rolling::daily("logs", "unified-processor.log");
-    let (non_blocking, _guard) = tracing_appender::non_blocking(file_appender);
-
     tracing_subscriber::registry()
         .with(tracing_subscriber::EnvFilter::try_from_default_env()
-            .unwrap_or_else(|_| "unified_processor_lib=debug,unified_processor=debug,tower_http=debug".into()))
+            .unwrap_or_else(|_| "info,unified_processor_lib=debug,unified_processor=debug,tower_http=debug".into()))
         .with(
             tracing_subscriber::fmt::layer()
                 .with_writer(std::io::stdout)
-                .pretty()
-        )
-        .with(
-            tracing_subscriber::fmt::layer()
-                .with_writer(non_blocking)
                 .json()
         )
         .init();
@@ -50,9 +42,7 @@ async fn main() -> anyhow::Result<()> {
         addr
     );
 
-    // Start HTTP server listener EARLY to satisfy Render's port scan
-    let listener = tokio::net::TcpListener::bind(addr).await?;
-    tracing::info!("Unified processor TCP listener bound on {}", addr);
+
 
 // Check Kafka health before starting (Kafka is required)
     check_kafka_health().await?;
@@ -96,7 +86,9 @@ async fn main() -> anyhow::Result<()> {
 
     let app = build_app_router(processor.clone(), auth_layer, rate_limit);
 
-    // Start HTTP server (listener was bound early)
+    // Start HTTP server
+    let listener = tokio::net::TcpListener::bind(addr).await?;
+    tracing::info!("Unified processor TCP listener bound on {}", addr);
     axum::serve(listener, app).await?;
 
     Ok(())
