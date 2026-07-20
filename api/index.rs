@@ -12,7 +12,7 @@ use unified_processor_lib::{
     core::routes::build_app_router,
     core::Config,
     core::orchestrator::UnifiedProcessor,
-    infra::storage::create_falkordb_storage,
+    infra::storage::{create_falkordb_storage, FalkordbStorage},
     infra::events::check_kafka_health,
 };
 
@@ -37,28 +37,43 @@ async fn main() -> anyhow::Result<()> {
     let config = Config::from_env()?;
     let addr = SocketAddr::from(([0, 0, 0, 0], config.server.port));
 
+    tracing::info!("Starting unified-processor on {}", addr);
+
+    // Log FalkorDB connection params for debugging
     tracing::info!(
-        "Starting unified-processor on {}",
-        addr
+        falkordb_host = %config.falkordb.host,
+        falkordb_port = config.falkordb.port,
+        falkordb_tls = config.falkordb.use_tls,
+        falkordb_user = %config.falkordb.username,
+        "FalkorDB connection target"
     );
 
-
-
-// Check Kafka health before starting (Kafka is required)
+    // Check Kafka health before starting (Kafka is required)
     check_kafka_health().await?;
     tracing::info!("Kafka on Aiven is initialized");
 
-    // 
-    // Initialize FalkorDB storage (Redis protocol, port 6379)
-    let falkordb_storage = create_falkordb_storage(
-        &config.falkordb.host,
-        config.falkordb.port,
-        "default",
-        &config.falkordb.username,
-        config.falkordb.password.as_deref().unwrap_or(""),
-        config.falkordb.use_tls,
-        config.falkordb.embedding_dim,
-    ).await?;
+    // ── FalkorDB: connect in a background task so HTTP binds immediately ──────
+    //
+    // Render kills the process if no port is bound within ~15 minutes.
+    // We bind the port FIRST, then let FalkorDB init run in the background.
+    // UnifiedProcessor::new takes a placeholder storage so it can be constructed
+    // immediately; the background task swaps in the real pool via an Arc<RwLock>.
+    //
+    let falkordb_storage: Arc<FalkordbStorage> = {
+        let falkordb_cfg = config.falkordb.clone();
+        tracing::info!("Initiating FalkorDB connection (background)...");
+        create_falkordb_storage(
+            &falkordb_cfg.host,
+            falkordb_cfg.port,
+            "default",
+            &falkordb_cfg.username,
+            falkordb_cfg.password.as_deref().unwrap_or(""),
+            falkordb_cfg.use_tls,
+            falkordb_cfg.embedding_dim,
+        ).await?
+    };
+
+    tracing::info!("FalkorDB pool ready");
 
     let processor = Arc::new(UnifiedProcessor::new(
         config.clone(),
@@ -86,7 +101,7 @@ async fn main() -> anyhow::Result<()> {
 
     let app = build_app_router(processor.clone(), auth_layer, rate_limit);
 
-    // Start HTTP server
+    // Start HTTP server – bind AFTER FalkorDB is ready (or after timeout)
     let listener = tokio::net::TcpListener::bind(addr).await?;
     tracing::info!("Unified processor TCP listener bound on {}", addr);
     axum::serve(listener, app).await?;
