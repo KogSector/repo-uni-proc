@@ -65,7 +65,7 @@ impl AxumAuthLayer {
             match AuthClient::connect(auth_grpc_url.clone()).await {
                 Ok(client) => Some(client),
                 Err(e) => {
-                    tracing::error!("Failed to connect to auth gRPC service at {}: {}", auth_grpc_url, e);
+                    tracing::warn!("gRPC auth service not available at {}, using HTTP fallback: {}", auth_grpc_url, e);
                     None
                 }
             }
