@@ -53,16 +53,18 @@ async fn main() -> anyhow::Result<()> {
         "Starting unified-processor"
     );
 
-    // ── Step 1: Kafka health check ───────────────────────────────────────────
-    check_kafka_health().await?;
-    tracing::info!("Kafka on Aiven is initialized");
-
-    // ── Step 2: Bind TCP port FIRST ──────────────────────────────────────────
+    // ── Step 1: Bind TCP port FIRST ──────────────────────────────────────────
     // Render kills a deploy if no port is detected within ~15 minutes.
-    // Binding here — before FalkorDB — guarantees Render sees us as live even
-    // if FalkorDB's smoke-test takes a few seconds or fails entirely.
+    // Binding here guarantees Render sees us as live immediately even if downstream checks retry.
     let listener = tokio::net::TcpListener::bind(addr).await?;
     tracing::info!(bound_addr = %addr, "TCP listener bound — service accepting connections");
+
+    // ── Step 2: Kafka health check ───────────────────────────────────────────
+    if let Err(e) = check_kafka_health().await {
+        tracing::warn!("Kafka health check warning (proceeding with HTTP startup): {}", e);
+    } else {
+        tracing::info!("Kafka on Aiven is initialized");
+    }
 
     // ── Step 3: FalkorDB connection pool ─────────────────────────────────────
     // create_falkordb_storage builds a lazy bb8 pool with an 8 s connection

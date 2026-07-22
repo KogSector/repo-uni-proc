@@ -67,6 +67,8 @@ pub struct AnalyzeCodeRequest {
     pub filename: String,
     pub source_id: String,
     pub user_id: String,
+    #[serde(default)]
+    pub is_base64: Option<bool>,
 }
 
 #[derive(Debug, Serialize)]
@@ -82,8 +84,9 @@ pub async fn analyze_code(
     Json(request): Json<AnalyzeCodeRequest>,
 ) -> Result<Json<AnalyzeCodeResponse>, StatusCode> {
     let start_time = std::time::Instant::now();
+    let is_base64 = request.is_base64.unwrap_or(false);
     
-    match processor.process_file(&request.content, false, &request.filename, &request.source_id, "unknown/repo", &request.user_id).await {
+    match processor.process_file(&request.content, is_base64, &request.filename, &request.source_id, "unknown/repo", &request.user_id).await {
         Ok(data) => {
             let processing_time = start_time.elapsed().as_millis() as u64;
             Ok(Json(AnalyzeCodeResponse {
@@ -130,8 +133,9 @@ pub async fn batch_analyze_code(
 
     for file_request in request.files {
         let file_start_time = std::time::Instant::now();
+        let is_base64 = file_request.is_base64.unwrap_or(false);
         
-        match processor.process_file(&file_request.content, false, &file_request.filename, &file_request.source_id, "unknown/repo", &file_request.user_id).await {
+        match processor.process_file(&file_request.content, is_base64, &file_request.filename, &file_request.source_id, "unknown/repo", &file_request.user_id).await {
             Ok(data) => {
                 let processing_time = file_start_time.elapsed().as_millis() as u64;
                 results.push(AnalyzeCodeResponse {
