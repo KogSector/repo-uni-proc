@@ -41,7 +41,7 @@ impl DatabaseConfig {
     pub fn from_env() -> Result<Self, String> {
         Ok(Self {
             DATABASE_URL: std::env::var("DATABASE_URL")
-                .map_err(|_| "DATABASE_URL must be set".to_string())?,
+                .unwrap_or_else(|_| "postgresql://user:password@localhost:5432/dbname".to_string()),
             max_connections: std::env::var("DB_MAX_CONNECTIONS")
                 .unwrap_or_else(|_| "10".to_string())
                 .parse()
@@ -76,7 +76,7 @@ impl FalkordbConfig {
     pub fn from_env() -> Result<Self, String> {
         Ok(Self {
             host: std::env::var("FALKORDB_HOST")
-                .map_err(|_| "FALKORDB_HOST must be set".to_string())?,
+                .unwrap_or_else(|_| "localhost".to_string()),
             port: std::env::var("FALKORDB_PORT")
                 .unwrap_or_else(|_| "50860".to_string())
                 .parse()
@@ -165,7 +165,7 @@ impl KafkaConfig {
     pub fn from_env() -> Result<Self, String> {
         Ok(Self {
             bootstrap_servers: std::env::var("KAFKA_BOOTSTRAP_SERVERS")
-                .map_err(|_| "KAFKA_BOOTSTRAP_SERVERS must be set".to_string())?,
+                .unwrap_or_else(|_| "localhost:9092".to_string()),
             group_id: std::env::var("REPO_UNI_PROC_KAFKA_GROUP_ID")
                 .unwrap_or_else(|_| "repo-uni-proc-group".to_string()),
             client_id: std::env::var("KAFKA_CLIENT_ID")
@@ -186,9 +186,9 @@ impl Config {
     pub fn from_env() -> crate::core::Result<Self> {
         let host = std::env::var("HOST").unwrap_or_else(|_| "0.0.0.0".to_string());
         let port = std::env::var("PORT")
-            .unwrap_or_else(|_| "8091".to_string())
+            .unwrap_or_else(|_| "8090".to_string())
             .parse::<u16>()
-            .unwrap_or(8091);
+            .unwrap_or(8090);
         
         let grpc_host = std::env::var("GRPC_HOST").unwrap_or_else(|_| "0.0.0.0".to_string());
         let grpc_port = std::env::var("GRPC_PORT")
@@ -197,7 +197,7 @@ impl Config {
             .unwrap_or(50052);
         
         let auth_middleware_url = std::env::var("AUTH_MIDDLEWARE_URL")
-            .map_err(|_| crate::core::error::ProcessorError::ConfigError("AUTH_MIDDLEWARE_URL must be set".to_string()))?;
+            .unwrap_or_else(|_| "http://auth-middleware:8080".to_string());
         let auth_grpc_url = std::env::var("AUTH_GRPC_URL")
             .unwrap_or_default();
         let workers = std::env::var("WORKERS")
