@@ -1,0 +1,4 @@
+{
+  "buildCommand": "cargo build --release",
+  "outputDirectory": "target/release"
+}
