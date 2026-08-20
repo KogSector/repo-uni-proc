@@ -16,7 +16,8 @@ pub struct PostgresStorage {
 impl PostgresStorage {
     pub async fn new(database_url: &str) -> Result<Self> {
         let pool = PgPoolOptions::new()
-            .max_connections(10)
+            .max_connections(20) // Increased from 10 for better concurrency
+            .acquire_timeout(std::time::Duration::from_secs(30)) // Add explicit timeout
             .connect(database_url)
             .await
             .map_err(|e| ProcessorError::DatabaseError(e.to_string()))?;
@@ -1615,12 +1616,14 @@ pub async fn create_falkordb_storage(
     let manager = RedisConnectionManager::new(url)
         .context("Failed to configure redis connection")?;
 
-    // Build the pool with an 8-second connection timeout so individual
-    // connection attempts fail fast instead of hanging for the bb8 default
-    // 30 seconds. Connections are lazy — bb8 does NOT connect at build time.
+    // Build the pool with increased timeout and size for Render free tier
+    // Free instances spin down after inactivity (50+ second delays), so we need:
+    // 1. Larger pool to handle concurrent requests during spin-up
+    // 2. Longer timeout to accommodate free tier spin-up delays
+    // 3. Lazy connections — bb8 does NOT connect at build time
     let pool = Pool::builder()
-        .max_size(16)
-        .connection_timeout(std::time::Duration::from_secs(8))
+        .max_size(32) // Increased from 16 to handle free tier spin-up delays
+        .connection_timeout(std::time::Duration::from_secs(30)) // Increased from 8s to handle free tier spin-up
         .build(manager)
         .await
         .context("Failed to build FalkorDB connection pool")?;
@@ -1629,14 +1632,14 @@ pub async fn create_falkordb_storage(
 
     // ── Smoke-test the connection once so we surface auth / network errors
     //    at startup rather than on the first real request. We do this with a
-    //    tight tokio::time::timeout so we don't block the HTTP server long.
+    //    longer timeout to accommodate Render free tier spin-up delays.
     match tokio::time::timeout(
-        std::time::Duration::from_secs(10),
+        std::time::Duration::from_secs(60), // Increased from 10s to handle free tier spin-up
         pool.get(),
     ).await {
         Ok(Ok(mut conn)) => {
             match tokio::time::timeout(
-                std::time::Duration::from_secs(5),
+                std::time::Duration::from_secs(15), // Increased from 5s
                 redis::cmd("PING").query_async::<_, String>(&mut *conn),
             ).await {
                 Ok(Ok(pong)) => {
@@ -1647,22 +1650,22 @@ pub async fn create_falkordb_storage(
                            Pool created — operations will fail until resolved.", e);
                 }
                 Err(_) => {
-                    warn!("FalkorDB PING timed out after 5s. \
+                    warn!("FalkorDB PING timed out after 15s. \
                            Pool created — operations will retry on each request.");
                 }
             }
         }
         Ok(Err(e)) => {
-            // bb8 could not establish a connection within 8 seconds.
+            // bb8 could not establish a connection within 30 seconds.
             // Log the FULL error (kind + detail) so the logs are useful.
             warn!(
-                "FalkorDB initial connection failed after 8s: {:#}. \
+                "FalkorDB initial connection failed after 30s: {:#}. \
                  Pool created — will retry on each request.",
                 e
             );
         }
         Err(_) => {
-            warn!("FalkorDB pool.get() timed out after 10s. \
+            warn!("FalkorDB pool.get() timed out after 60s. \
                    Pool created — will retry on each request.");
         }
     }
@@ -1670,7 +1673,7 @@ pub async fn create_falkordb_storage(
     // Per-user graphs (`graph-<user_id>`) are initialized lazily via
     // `ensure_user_graph()` when processing requests for each user.
     let storage = Arc::new(FalkordbStorage::new(pool, graph_name, false));
-    info!("FalkorDB pool ready (lazy connections — per-user graphs on demand)");
+    info!("FalkorDB pool ready (pool_size=32, timeout=30s, lazy connections — per-user graphs on demand)");
     Ok(storage)
 }
 
