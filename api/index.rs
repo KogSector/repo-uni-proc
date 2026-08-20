@@ -167,6 +167,24 @@ async fn main() -> anyhow::Result<()> {
         });
     }
 
+    // ── Step 5.5: FalkorDB keep-alive (background) ─────────────────────────────
+    // Keep FalkorDB active by pinging it every 4 minutes to prevent free tier spin-down
+    let keepalive_falkordb = falkordb_storage.clone();
+    tokio::spawn(async move {
+        let mut interval = tokio::time::interval(std::time::Duration::from_secs(240)); // 4 minutes
+        loop {
+            interval.tick().await;
+            match keepalive_falkordb.execute_query("RETURN 1 as keepalive").await {
+                Ok(_) => {
+                    tracing::debug!("FalkorDB keep-alive ping successful");
+                }
+                Err(e) => {
+                    tracing::warn!("FalkorDB keep-alive ping failed: {}", e);
+                }
+            }
+        }
+    });
+
     // ── Step 6: Router + middleware ──────────────────────────────────────────
     let auth_layer = unified_processor_lib::infra::middleware::AxumAuthLayer::with_grpc(
         config.server.auth_middleware_url.clone(),
