@@ -60,8 +60,7 @@ reqwest = { version = "0.13.4", features = ["json", "stream", "gzip", "brotli"] 
 config = "0.15.24"
 dotenvy = "0.15.7"
 
-# Python embedding
-pyo3 = { version = "0.20.0", features = ["auto-initialize"] }
+# Python embedding removed to keep service purely native Rust and lightweight
 
 # Utils
 num_cpus = "1.17.0"

@@ -32,7 +32,7 @@ async fn main() -> anyhow::Result<()> {
     // ── Tracing ─────────────────────────────────────────────────────────────
     tracing_subscriber::registry()
         .with(tracing_subscriber::EnvFilter::try_from_default_env()
-            .unwrap_or_else(|_| "info,unified_processor_lib=debug,unified_processor=debug,tower_http=debug".into()))
+            .unwrap_or_else(|_| "info,unified_processor_lib=info,unified_processor=info,tower_http=warn".into()))
         .with(
             tracing_subscriber::fmt::layer()
                 .with_writer(std::io::stdout)

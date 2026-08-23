@@ -171,6 +171,8 @@ pub struct UnifiedProcessor {
 
     // Web scraper
     pub falkordb_storage: Arc<crate::infra::storage::FalkordbStorage>,
+    /// Singleton Kafka chunk event publisher
+    pub chunk_publisher: Arc<crate::infra::events::ChunkEventPublisher>,
     /// In-memory cache: chunk_id â†’ content, populated before Kafka publish,
     /// consumed by the embedding consumer to avoid PostgreSQL dependency.
     pub chunk_content_cache: Arc<Mutex<HashMap<String, String>>>,
@@ -192,14 +194,10 @@ impl UnifiedProcessor {
         let graph_sync = Arc::new(GraphSync::new(falkordb_storage.clone()));
         
         // Initialize advanced chunking system
-        // Initialize advanced chunking system
         let chunker = crate::core::chunking::HybridChunker::new();
         
-
         let relationship_router = SourceRelationshipRouter::new();
-
-
-
+        let chunk_publisher = Arc::new(crate::infra::events::ChunkEventPublisher::new());
 
         Ok(Self {
             _config: config,
@@ -207,9 +205,9 @@ impl UnifiedProcessor {
             postgres_storage,
             graph_sync,
             chunker,
-
             relationship_router,
             falkordb_storage,
+            chunk_publisher,
             chunk_content_cache: Arc::new(Mutex::new(HashMap::new())),
         })
     }
@@ -510,7 +508,6 @@ impl UnifiedProcessor {
     ///   3. Store chunks directly in FalkorDB (embeddings callback will update them later)
     pub async fn store_and_publish_chunks(&self, chunks: Vec<crate::core::chunking::Chunk>, source_id: &str, repo_name: Option<String>, user_id: &str) -> Result<()> {
         use crate::graph::SimplifiedChunk;
-        use crate::infra::events::producer::ChunkEventPublisher;
         use std::collections::HashMap;
 
         if chunks.is_empty() {
@@ -606,10 +603,17 @@ impl UnifiedProcessor {
         let chunks = chunks_to_process;
         let chunk_count = chunks.len();
 
-        // â”€â”€ Step 1: Cache chunk content in-memory so the embedding consumer can
+        // ── Step 1: Cache chunk content in-memory so the embedding consumer can
         //           look it up by chunk_id without needing a PostgreSQL `chunks` table.
         {
             let mut cache = self.chunk_content_cache.lock().unwrap_or_else(|p| p.into_inner());
+            // Evict if cache exceeds max size to prevent RAM leaks
+            if cache.len() > 5000 {
+                let to_remove: Vec<String> = cache.keys().take(1000).cloned().collect();
+                for k in to_remove {
+                    cache.remove(&k);
+                }
+            }
             for c in chunks.iter() {
                 let composite_id = format!("{}|{}", c.chunk_key, c.file_path);
                 cache.insert(composite_id, c.content.clone());
@@ -617,7 +621,7 @@ impl UnifiedProcessor {
             tracing::info!("Cached {} new chunks in-memory for source: {}", chunk_count, source_id);
         }
 
-        // â”€â”€ Step 1.5: Store chunks DIRECTLY in FalkorDB (without embeddings) â”€â”€
+        // ── Step 1.5: Store chunks DIRECTLY in FalkorDB (without embeddings) ──
         {
             tracing::info!(
                 "[FalkorDB-Direct] Storing {} chunks directly in FalkorDB for source: {}",
@@ -633,7 +637,7 @@ impl UnifiedProcessor {
                     "level": format!("{:?}", c.level),
                     "user_id": user_id,
                 }));
-                // Empty embedding â€” will be filled by the embeddings callback if it arrives
+                // Empty embedding — will be filled by the embeddings callback if it arrives
                 let empty_embedding: Vec<f32> = vec![];
                 let language_str = match &c.chunk_type {
                     crate::core::chunking::types::ChunkType::Code { language, .. } => language.clone(),
@@ -657,19 +661,16 @@ impl UnifiedProcessor {
             }
         }
 
-        // â”€â”€ Step 1.6: Extract intra-file relationships â”€â”€
+        // ── Step 1.6: Extract intra-file relationships ──
         if let Err(e) = self.extract_and_store_relationships(&chunks, source_id, user_id).await {
             tracing::warn!("Failed to extract intra-file relationships: {}", e);
         }
 
-        // â”€â”€ Step 2: Send chunks to embeddings-service via Kafka for embedding generation â”€â”€
+        // ── Step 2: Send chunks to embeddings-service via Kafka for embedding generation ──
         // NOTE: This is best-effort. If the embeddings-service is down, chunks are still
         // stored directly in FalkorDB (Step 1.5 above). When the embeddings callback
         // arrives later, it will MERGE-update the node with the actual embedding vector.
         {
-            tracing::info!("Creating ChunkEventPublisher for Kafka publishing");
-            let publisher = ChunkEventPublisher::new();
-
             // Convert internal Chunk models to SimplifiedChunk for Kafka
             tracing::info!("Converting {} chunks to SimplifiedChunk format", chunk_count);
             let simplified_chunks: Vec<SimplifiedChunk> = chunks.iter().filter(|c| c.is_dirty).enumerate().map(|(idx, c)| {
@@ -707,7 +708,7 @@ impl UnifiedProcessor {
             tracing::info!("Attempting to publish {} simplified chunks to Kafka for embeddings", simplified_chunks.len());
             
             // Batch chunks to avoid Kafka MessageSizeTooLarge error
-            for (batch_idx, batch) in simplified_chunks.chunks(1).enumerate() {
+            for (batch_idx, batch) in simplified_chunks.chunks(10).enumerate() {
                 let batch_vec = batch.to_vec();
                 let batch_chunks_count = batch_vec.len();
                 
@@ -718,18 +719,14 @@ impl UnifiedProcessor {
                     "Publishing batch {} ({} chunks, approx {} bytes) for source: {}",
                     batch_idx, batch_chunks_count, est_size, source_id
                 );
-                
-                if est_size > 900_000 {
-                    tracing::warn!("Chunk is very large ({} bytes), might exceed Kafka limit", est_size);
-                }
 
-                if let Err(e) = publisher.publish_chunks(source_id, repo_name.clone(), batch_vec, Some(source_id.to_string()), user_id).await {
+                if let Err(e) = self.chunk_publisher.publish_chunks(source_id, repo_name.clone(), batch_vec, Some(source_id.to_string()), user_id).await {
                     tracing::warn!(
                         "Kafka publish to embeddings-service failed for batch {} of source_id={}: {}. \
                          Chunks will still be stored directly in FalkorDB without embeddings.",
                         batch_idx, source_id, e
                     );
-                    // Don't return error â€” continue to direct FalkorDB storage below
+                    // Don't return error — continue to direct FalkorDB storage
                     break;
                 }
             }

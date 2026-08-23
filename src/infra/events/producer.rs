@@ -26,12 +26,12 @@ mod kafka_impl {
             config
                 .set("bootstrap.servers", bootstrap_servers)
                 .set("message.max.bytes", "10485760") // 10MB
-                .set("delivery.timeout.ms", "300000") // 5 minutes
-                .set("request.timeout.ms", "30000")
-                .set("batch.size", "1048576") // 1MB batches
-                .set("linger.ms", "50") // wait 50ms for more messages to batch
-                .set("queue.buffering.max.messages", "100000")
-                .set("queue.buffering.max.kbytes", "1048576")
+                .set("delivery.timeout.ms", "60000") // 1 minute
+                .set("request.timeout.ms", "20000")
+                .set("batch.size", "131072") // 128KB batches
+                .set("linger.ms", "20")
+                .set("queue.buffering.max.messages", "10000")
+                .set("queue.buffering.max.kbytes", "65536") // 64MB buffer limit
                 .set("enable.idempotence", enable_idempotence.to_string());
 
             if let Ok(protocol) = std::env::var("KAFKA_SECURITY_PROTOCOL") {
@@ -146,7 +146,6 @@ use tracing::{error, info};
 /// Event publisher for unified-processor
 pub struct ChunkEventPublisher {
     producer: Option<EventProducer>,
-    retry_interval: Duration,
 }
 
 impl ChunkEventPublisher {
@@ -154,7 +153,6 @@ impl ChunkEventPublisher {
     pub fn new() -> Self {
         Self {
             producer: Self::create_producer(),
-            retry_interval: Duration::from_secs(5),
         }
     }
 
@@ -248,26 +246,40 @@ impl ChunkEventPublisher {
                 timestamp: chrono::Utc::now().to_rfc3339(),
             };
 
-            // Retry logic: retry every 5 seconds indefinitely until success
-            loop {
-                // Use the shared producer's retry + DLQ API
+            // Bounded retry logic: try up to 3 times before returning error
+            let max_publish_attempts = 3;
+            let mut last_err = None;
+            for attempt in 1..=max_publish_attempts {
                 let dlq = std::env::var("KAFKA_DLQ_TOPIC").ok();
-                match producer.publish_with_retry(Topics::CHUNKS_RAW, &event, 3, dlq.as_deref()).await {
+                match producer.publish_with_retry(Topics::CHUNKS_RAW, &event, 2, dlq.as_deref()).await {
                     Ok(()) => {
                         info!("Published chunk raw event for source: {}", source_id);
                         return Ok(());
                     }
                     Err(e) => {
-                        error!(
-                            "Failed to publish chunk raw event for source {} after retries: {}. Retrying in {} seconds...",
+                        tracing::warn!(
+                            "Failed to publish chunk raw event for source {} (attempt {}/{}): {}",
                             source_id,
-                            e,
-                            self.retry_interval.as_secs()
+                            attempt,
+                            max_publish_attempts,
+                            e
                         );
-                        sleep(self.retry_interval).await;
+                        last_err = Some(e);
+                        if attempt < max_publish_attempts {
+                            sleep(Duration::from_millis(500 * attempt as u64)).await;
+                        }
                     }
                 }
             }
+
+            if let Some(e) = last_err {
+                error!(
+                    "Exhausted Kafka publish retries for source {}: {}. Proceeding without Kafka embeddings.",
+                    source_id, e
+                );
+                return Err(e);
+            }
+            Ok(())
         } else {
             info!("Event publisher not available, skipping chunk publication");
             Ok(())
