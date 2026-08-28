@@ -23,14 +23,14 @@ pub struct ServerConfig {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DatabaseConfig {
-    pub DATABASE_URL: String,
+    pub database_url: String,
     pub max_connections: u32,
 }
 
 impl DatabaseConfig {
     pub fn from_env() -> Result<Self, String> {
         Ok(Self {
-            DATABASE_URL: std::env::var("DATABASE_URL")
+            database_url: std::env::var("DATABASE_URL")
                 .unwrap_or_else(|_| "postgresql://user:password@localhost:5432/dbname".to_string()),
             max_connections: std::env::var("DB_MAX_CONNECTIONS")
                 .unwrap_or_else(|_| "10".to_string())

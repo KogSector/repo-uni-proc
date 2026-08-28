@@ -188,7 +188,7 @@ impl UnifiedProcessor {
         let code_analyzer = CodeAnalyzer::new()?;
         
         let postgres_storage = Arc::new(
-            PostgresStorage::new(&config.database.DATABASE_URL).await?
+            PostgresStorage::new(&config.database.database_url).await?
         );
         
         let graph_sync = Arc::new(GraphSync::new(falkordb_storage.clone()));

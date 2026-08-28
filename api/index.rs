@@ -61,7 +61,7 @@ async fn main() -> anyhow::Result<()> {
                 auth_middleware_url: "http://auth-middleware:8080".to_string(),
             },
             database: unified_processor_lib::core::config::DatabaseConfig {
-                DATABASE_URL: "postgresql://user:password@localhost:5432/dbname".to_string(),
+                database_url: "postgresql://user:password@localhost:5432/dbname".to_string(),
                 max_connections: 20,
             },
             pipeline: unified_processor_lib::core::config::PipelineConfig {
@@ -100,7 +100,7 @@ async fn main() -> anyhow::Result<()> {
     });
 
     // Check if we're using default config (indicates missing env vars)
-    if config.database.DATABASE_URL.contains("localhost") || config.database.DATABASE_URL.contains("user:password") {
+    if config.database.database_url.contains("localhost") || config.database.database_url.contains("user:password") {
         tracing::error!("CRITICAL: DATABASE_URL environment variable not set or using default. Please set DATABASE_URL in Render dashboard.");
         tracing::error!("Service will not function properly without real database connection.");
         return Err(anyhow::anyhow!("DATABASE_URL environment variable is required for deployment"));
