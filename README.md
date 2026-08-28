@@ -116,17 +116,11 @@ unified-processor/
 │   ├── chunking/       # Text chunking strategies
 │   ├── storage/        # Database operations (FalkorDB + PostgreSQL)
 │   ├── search/         # Vector search with FalkorDB
-│   ├── infra/          # Infrastructure clients (gRPC, etc.)
-│   │   └── grpc/       # gRPC clients for embeddings-service
+│   ├── infra/          # Infrastructure clients (HTTP, Kafka)
 │   ├── events/         # Kafka event handling
-│   ├── proto/          # Generated protobuf definitions (gRPC server)
 │   ├── graph/          # Graph extractors and resolvers
 │   └── models/         # Data structures
-├── proto/             # Protobuf schema definitions
-├── src/utils/         # Python ML models and NLP
-├── build.rs           # Build script for protobuf code generation
 ├── Cargo.toml         # Rust dependencies
-├── requirements.txt    # Python dependencies
 └── Dockerfile         # Container configuration
 ```
 
@@ -135,15 +129,15 @@ unified-processor/
 The unified processor integrates with:
 
 - **data-connector**: Receives file processing requests via HTTP and Kafka
-- **embeddings-service**: Generates embeddings via gRPC client and publishes chunk events
-- **auth-middleware**: Validates processing requests
+- **embeddings-service**: Generates embeddings and publishes chunk events via Kafka
+- **auth-middleware**: Validates processing requests via HTTP
 - **fast-fetcher**: Discovers cross-source relationships between graphs created here
 - **FalkorDB**: Stores vector embeddings with native vector search support
 
 ### Processing with Embeddings
 
 1. **Chunk Processing**: Unified processor creates text chunks
-2. **gRPC Call**: Batch embedding generation via embeddings-service
+2. **Kafka Event**: Publish chunk events for embeddings-service processing
 3. **Vector Storage**: Store embeddings in FalkorDB Vector_Chunk nodes
 4. **Relationship Creation**: Create Document→Vector_Chunk and structural sequential/hierarchical relationships
 5. **Event Publishing**: Notify downstream services (like `fast-fetcher`) of completion
@@ -156,8 +150,7 @@ The unified processor integrates with:
 | `DATABASE_URL` | Yes | - | PostgreSQL connection URL |
 | `KAFKA_BOOTSTRAP_SERVERS` | Yes | - | Kafka bootstrap servers |
 | `KAFKA_ENABLED` | No | true | Enable Kafka integration |
-| `AUTH_SERVICE_URL` | No | http://auth-middleware:3010 | Auth service URL |
-| `EMBEDDINGS_SERVICE_URL` | No | http://embeddings-service:3011 | Embeddings service gRPC endpoint (internal Docker network) |
+| `AUTH_MIDDLEWARE_URL` | No | http://auth-middleware:3010 | Auth middleware service URL (HTTP) |
 | `FALKORDB_HOST` | No | localhost | FalkorDB host |
 | `FALKORDB_PORT` | No | 6379 | FalkorDB port |
 | `FALKORDB_USERNAME` | No | neo4j | FalkorDB username |

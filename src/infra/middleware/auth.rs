@@ -12,9 +12,6 @@ use axum::{
     Json,
 };
 use serde::{Deserialize, Serialize};
-use crate::infra::proto::confuse_auth_v1::auth_client::AuthClient;
-use crate::infra::proto::confuse_auth_v1::ValidateTokenRequest;
-use tonic::transport::Channel;
 
 /// Authenticated user extracted from JWT/API key
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -31,9 +28,7 @@ pub struct AuthenticatedUser {
 #[derive(Clone)]
 pub struct AxumAuthLayer {
     pub auth_service_url: String,
-    pub auth_grpc_url: Option<String>,
     http_client: reqwest::Client,
-    grpc_client: Option<AuthClient<Channel>>,
 }
 
 impl AxumAuthLayer {
@@ -45,39 +40,7 @@ impl AxumAuthLayer {
 
         Self {
             auth_service_url,
-            auth_grpc_url: None,
             http_client,
-            grpc_client: None,
-        }
-    }
-
-    /// Initialize with gRPC support
-    pub async fn with_grpc(
-        auth_service_url: String,
-        auth_grpc_url: String,
-    ) -> Self {
-        let http_client = reqwest::Client::builder()
-            .timeout(std::time::Duration::from_secs(5))
-            .build()
-            .unwrap_or_default();
-
-        let grpc_client = if !auth_grpc_url.is_empty() {
-            match AuthClient::connect(auth_grpc_url.clone()).await {
-                Ok(client) => Some(client),
-                Err(e) => {
-                    tracing::warn!("gRPC auth service not available at {}, using HTTP fallback: {}", auth_grpc_url, e);
-                    None
-                }
-            }
-        } else {
-            None
-        };
-
-        Self {
-            auth_service_url,
-            auth_grpc_url: Some(auth_grpc_url),
-            http_client,
-            grpc_client,
         }
     }
 
@@ -96,36 +59,7 @@ impl AxumAuthLayer {
             }
         }
 
-        // Try gRPC first if available
-        if let Some(mut client) = self.grpc_client.clone() {
-            let mut request = tonic::Request::new(ValidateTokenRequest {
-                token: token.to_string(),
-            });
-            request.set_timeout(std::time::Duration::from_secs(5));
-
-            match client.validate_token(request).await {
-                Ok(response) => {
-                    let resp = response.into_inner();
-                    if resp.valid {
-                        return Ok(AuthenticatedUser {
-                            id: resp.user_id.unwrap_or_default(),
-                            email: resp.email, 
-                            name: None,
-                            picture: None,
-                            roles: resp.roles,
-                            workspace_id: None,
-                        });
-                    } else {
-                        return Err(resp.error.unwrap_or_else(|| "Invalid token".to_string()));
-                    }
-                }
-                Err(e) => {
-                    tracing::warn!("Auth gRPC call failed, falling back to HTTP: {}", e);
-                }
-            }
-        }
-
-        // Fallback to HTTP
+        // HTTP authentication
         let url = format!("{}/auth/validate", self.auth_service_url);
 
         let res = self
@@ -166,36 +100,7 @@ impl AxumAuthLayer {
             }
         }
 
-        // Try gRPC first if available
-        if let Some(mut client) = self.grpc_client.clone() {
-            let mut request = tonic::Request::new(crate::infra::proto::confuse_auth_v1::ValidateApiKeyRequest {
-                api_key: key.to_string(),
-            });
-            request.set_timeout(std::time::Duration::from_secs(5));
-
-            match client.validate_api_key(request).await {
-                Ok(response) => {
-                    let resp = response.into_inner();
-                    if resp.valid {
-                        return Ok(AuthenticatedUser {
-                            id: resp.user_id,
-                            email: resp.email,
-                            name: None,
-                            picture: None,
-                            roles: resp.roles,
-                            workspace_id: None,
-                        });
-                    } else {
-                        return Err(resp.error);
-                    }
-                }
-                Err(e) => {
-                    tracing::warn!("Auth gRPC call failed for API key, falling back to HTTP: {}", e);
-                }
-            }
-        }
-
-        // Fallback to HTTP
+        // HTTP authentication
         let url = format!("{}/auth/validate-api-key", self.auth_service_url);
 
         let res = self

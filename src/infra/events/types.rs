@@ -868,14 +868,14 @@ impl MeetingTranscriptReceived {
     }
 }
 
-/// API_SCHEMA_UPDATED — emitted when an API schema changes (OpenAPI, GraphQL, gRPC).
+/// API_SCHEMA_UPDATED — emitted when an API schema changes (OpenAPI, GraphQL, JSON Schema).
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct ApiSchemaUpdatedPayload {
     /// Unique API source ID
     pub api_id: String,
     /// API name / title
     pub api_name: String,
-    /// Schema format: openapi, graphql, grpc, json_schema
+    /// Schema format: openapi, graphql, json_schema
     pub schema_format: String,
     /// Schema version (e.g., "3.0.0")
     pub schema_version: Option<String>,

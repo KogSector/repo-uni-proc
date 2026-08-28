@@ -11,7 +11,8 @@ pub mod graph;
 
 
 
-// Proto definitions for gRPC services removed.
+// Communication with auth-middleware via HTTP only (gRPC removed).
+// Data processing via Kafka events (gRPC removed).
 
 use std::sync::Arc;
 

@@ -1,8 +1,8 @@
 //! Main orchestration logic for the unified processor
 //!
-//! gRPC-based processing pipeline:
-//! 1. Receive from: data-connector via gRPC calls
-//! 2. Process: clone repo / download doc â†’ AST analysis â†’ intelligent chunking
+//! Event-driven processing pipeline:
+//! 1. Receive from: data-connector via Kafka events
+//! 2. Process: clone repo / download doc → AST analysis → intelligent chunking
 //! 3. Store: chunks in local database
 //! 4. Cleanup: delete temp content after processing
 
@@ -216,9 +216,9 @@ impl UnifiedProcessor {
     
 
 
-    // â”€â”€â”€ Legacy file processing (kept for gRPC health checks & direct calls) â”€â”€
-    
-    /// Process a single file (used by gRPC endpoint for backward compatibility)
+    // --- Legacy file processing (kept for direct HTTP calls) ---
+
+    /// Process a single file (used by HTTP endpoint for backward compatibility)
     pub async fn process_file(&self, content: &str, is_base64: bool, filename: &str, source_id: &str, repo_name: &str, user_id: &str) -> Result<ProcessedData> {
         let start_time = std::time::Instant::now();
         let file_id = Uuid::new_v4();

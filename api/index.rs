@@ -58,10 +58,7 @@ async fn main() -> anyhow::Result<()> {
                 host: "0.0.0.0".to_string(),
                 port: 8090,
                 workers: 4,
-                grpc_host: "0.0.0.0".to_string(),
-                grpc_port: 50052,
                 auth_middleware_url: "http://auth-middleware:8080".to_string(),
-                auth_grpc_url: "".to_string(),
             },
             database: unified_processor_lib::core::config::DatabaseConfig {
                 DATABASE_URL: "postgresql://user:password@localhost:5432/dbname".to_string(),
@@ -73,10 +70,7 @@ async fn main() -> anyhow::Result<()> {
                 max_batch_size: 100,
                 timeout: std::time::Duration::from_secs(300),
             },
-            grpc: Some(unified_processor_lib::core::config::GrpcConfig {
-                host: "0.0.0.0".to_string(),
-                port: 50052,
-            }),
+
             falkordb: unified_processor_lib::core::config::FalkordbConfig {
                 host: "localhost".to_string(),
                 port: 50860,
@@ -202,10 +196,9 @@ async fn main() -> anyhow::Result<()> {
     });
 
     // ── Step 6: Router + middleware ──────────────────────────────────────────
-    let auth_layer = unified_processor_lib::infra::middleware::AxumAuthLayer::with_grpc(
+    let auth_layer = unified_processor_lib::infra::middleware::AxumAuthLayer::new(
         config.server.auth_middleware_url.clone(),
-        config.server.auth_grpc_url.clone(),
-    ).await;
+    );
 
     let rate_limit = unified_processor_lib::infra::middleware::AxumRateLimitConfig::default_for_service(10000);
 

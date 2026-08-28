@@ -8,7 +8,6 @@ pub struct Config {
     pub server: ServerConfig,
     pub database: DatabaseConfig,
     pub pipeline: PipelineConfig,
-    pub grpc: Option<GrpcConfig>,
     pub falkordb: FalkordbConfig,
     pub kafka: KafkaConfig,
     pub web: WebConfig,
@@ -19,16 +18,7 @@ pub struct ServerConfig {
     pub host: String,
     pub port: u16,
     pub workers: usize,
-    pub grpc_host: String,
-    pub grpc_port: u16,
     pub auth_middleware_url: String,
-    pub auth_grpc_url: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct GrpcConfig {
-    pub host: String,
-    pub port: u16,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -189,26 +179,13 @@ impl Config {
             .unwrap_or_else(|_| "8090".to_string())
             .parse::<u16>()
             .unwrap_or(8090);
-        
-        let grpc_host = std::env::var("GRPC_HOST").unwrap_or_else(|_| "0.0.0.0".to_string());
-        let grpc_port = std::env::var("GRPC_PORT")
-            .unwrap_or_else(|_| "50052".to_string())
-            .parse()
-            .unwrap_or(50052);
-        
+
         let auth_middleware_url = std::env::var("AUTH_MIDDLEWARE_URL")
             .unwrap_or_else(|_| "http://auth-middleware:8080".to_string());
-        let auth_grpc_url = std::env::var("AUTH_GRPC_URL")
-            .unwrap_or_default();
         let workers = std::env::var("WORKERS")
             .unwrap_or_else(|_| "4".to_string())
             .parse()
             .unwrap_or(4);
-
-        let grpc = Some(GrpcConfig {
-            host: grpc_host.clone(),
-            port: grpc_port,
-        });
 
         // Pipeline Config
         let pipeline = PipelineConfig {
@@ -245,14 +222,10 @@ impl Config {
                 host,
                 port,
                 workers,
-                grpc_host,
-                grpc_port,
                 auth_middleware_url,
-                auth_grpc_url,
             },
             database,
             pipeline,
-            grpc,
             falkordb,
             kafka,
             web,
