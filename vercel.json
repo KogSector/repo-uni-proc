@@ -1,5 +1,5 @@
 {
-  "buildCommand": "docker build -t unified-processor .",
-  "outputDirectory": "/",
-  "dockerfilePath": "Dockerfile"
+  "rewrites": [
+    { "source": "/(.*)", "destination": "/" }
+  ]
 }
