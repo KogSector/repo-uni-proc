@@ -1,6 +1,5 @@
 {
   "buildCommand": "docker build -t unified-processor .",
   "outputDirectory": "/",
-  "dockerContext": ".",
   "dockerfilePath": "Dockerfile"
 }
