@@ -8,27 +8,30 @@
 # ==============================================================================
 # Stage 1: Rust builder
 # ==============================================================================
-FROM debian:bookworm-slim AS rust-builder
+FROM rust:1.94-slim-bookworm AS rust-builder
 
 ARG RUST_VERSION=stable
 
-# Install build-time dependencies
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    curl \
-    ca-certificates \
+# Install build-time dependencies (minimal for Rust with vendored SSL)
+RUN rm -f /etc/apt/sources.list.d/debian.sources && \
+    echo "deb http://deb.debian.org/debian bookworm main" > /etc/apt/sources.list && \
+    echo "deb http://deb.debian.org/debian-security bookworm-security main" >> /etc/apt/sources.list && \
+    apt-get update && apt-get install -y --no-install-recommends \
     pkg-config \
     libssl-dev \
-    libcurl4-openssl-dev \
     zlib1g-dev \
-    cmake \
-    build-essential \
-    libsasl2-dev \
-    librdkafka-dev \
+    perl \
+    g++ \
+    make \
     && rm -rf /var/lib/apt/lists/*
 
-# Install Rust via rustup
-RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain ${RUST_VERSION}
-ENV PATH="/root/.cargo/bin:${PATH}"
+# Use vendored SSL for reliability (reduces system dependencies)
+ENV OPENSSL_NO_VENDOR=1 \
+    OPENSSL_DIR=/usr \
+    OPENSSL_LIB_DIR=/usr/lib/aarch64-linux-gnu \
+    OPENSSL_INCLUDE_DIR=/usr/include/openssl \
+    CARGO_NET_RETRY=10 \
+    CARGO_NET_TIMEOUT=120
 
 WORKDIR /app
 
@@ -44,8 +47,7 @@ RUN mkdir -p \
         src/core \
         src/processors \
         src/infra \
-        src/graph \
-        src/utils && \
+        src/graph && \
     echo 'fn main() {}' > api/index.rs && \
     printf 'pub mod core;\npub mod processors;\npub mod infra;\npub mod graph;\n' > src/lib.rs && \
     touch \
@@ -73,18 +75,11 @@ RUN cargo build --release --features kafka
 # ==============================================================================
 FROM debian:bookworm-slim AS runtime
 
-# Install only shared libraries needed by compiled Rust binary
+# Install only minimal runtime dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
     dumb-init \
-    curl \
     ca-certificates \
-    libpq5 \
-    libssl3 \
-    librdkafka1 \
-    libsasl2-2 \
     && rm -rf /var/lib/apt/lists/*
-
-ENV LD_LIBRARY_PATH="/usr/lib/x86_64-linux-gnu:/usr/local/lib:$LD_LIBRARY_PATH"
 
 # SECURITY: Create a non-root user and group
 RUN groupadd -r appgroup && useradd -r -g appgroup appuser
@@ -100,12 +95,10 @@ RUN chown -R appuser:appgroup /app
 # SECURITY: Switch to the non-root user
 USER appuser
 
-ENV PORT=8080
-EXPOSE 8080
+ENV PORT=8090
+EXPOSE 8090
 
-# Health check optimized for general deployment
-HEALTHCHECK --interval=30s --timeout=10s --start-period=120s --retries=5 \
-    CMD curl -f http://localhost:${PORT:-8080}/health || exit 1
+# Remove health check to minimize dependencies - service monitoring can be external
 
 ENTRYPOINT ["dumb-init", "--"]
 CMD ["unified-processor"]
