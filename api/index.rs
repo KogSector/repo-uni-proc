@@ -31,8 +31,8 @@ async fn main() -> anyhow::Result<()> {
 
     // ── Environment variables ────────────────────────────────────────────────
     tracing::info!("Loading environment variables...");
-    dotenvy::from_filename_override(".env.map").ok();
-    dotenvy::from_filename_override(".env.secret").ok();
+    dotenvy::from_filename_override(".map.env").ok();
+    dotenvy::from_filename_override(".secret.env").ok();
     dotenvy::from_filename_override(".env.local").ok();
     tracing::info!("Environment variables loaded");
 
