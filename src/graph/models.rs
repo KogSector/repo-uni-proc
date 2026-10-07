@@ -281,6 +281,12 @@ pub struct ASTNodeDef {
     pub end_byte: usize,
     pub start_line: usize,
     pub end_line: usize,
+    /// First line of the definition header (e.g. "pub fn parse(input: &str) -> Result<Self>")
+    #[serde(default)]
+    pub signature: Option<String>,
+    /// Docstring or attached comment block describing the definition
+    #[serde(default)]
+    pub docstring: Option<String>,
 }
 
 /// AST reference data stored in chunk metadata.
@@ -307,6 +313,11 @@ pub struct ASTData {
     pub instantiations: Vec<String>,
     /// Decorators/annotations applied in this chunk
     pub decorators: Vec<String>,
+    /// Qualified call expressions captured verbatim before leaf-name
+    /// collapsing (e.g. "module.func", "obj.method", "Type::new").
+    /// Used by cross-file resolution to disambiguate same-named callees.
+    #[serde(default)]
+    pub qualified_calls: Vec<String>,
     /// The programming language of this chunk (if code)
     pub language: Option<String>,
     /// Type references from parameters, return types, fields, generics

@@ -524,9 +524,131 @@ fn add_type_ref(data: &mut ASTData, type_name: String, context: &str, seen: &mut
     }
 }
 
-pub fn extract_with_tree_sitter(content: &str, language: &str) -> Option<ASTData> {
-    let mut parser = tree_sitter::Parser::new();
-    
+/// Build an `ASTNodeDef` for a definition node, including its signature line
+/// and docstring (Python-style string literal or attached comment block).
+fn make_defined_node(
+    node: &tree_sitter::Node,
+    bytes: &[u8],
+    node_type: &str,
+    name: &str,
+) -> crate::graph::models::ASTNodeDef {
+    let signature = node
+        .utf8_text(bytes)
+        .ok()
+        .and_then(|text| text.lines().next())
+        .map(|line| {
+            line.trim()
+                .trim_end_matches('{')
+                .trim_end_matches(':')
+                .trim()
+                .to_string()
+        })
+        .filter(|line| !line.is_empty());
+    crate::graph::models::ASTNodeDef {
+        name: name.to_string(),
+        node_type: node_type.to_string(),
+        start_byte: node.start_byte(),
+        end_byte: node.end_byte(),
+        start_line: node.start_position().row,
+        end_line: node.end_position().row,
+        signature,
+        docstring: docstring_for_definition(node, bytes),
+    }
+}
+
+/// Extract a definition's docstring: the string-literal expression at the top
+/// of the body (Python-style), or the contiguous comment block directly above
+/// the definition (common in Rust/JS/Go/Java).
+pub(crate) fn docstring_for_definition(node: &tree_sitter::Node, bytes: &[u8]) -> Option<String> {
+    // 1. String-literal docstring as the first statement of the body.
+    if let Some(body) = node.child_by_field_name("body") {
+        if let Some(first) = body.named_child(0) {
+            let kind = first.kind();
+            if kind == "expression_statement" || kind == "block" || kind == "statement_block" {
+                if let Some(inner) = first.named_child(0) {
+                    if inner.kind().contains("string") {
+                        if let Ok(text) = inner.utf8_text(bytes) {
+                            return Some(strip_string_delimiters(text));
+                        }
+                    }
+                }
+            } else if kind.contains("string") {
+                if let Ok(text) = first.utf8_text(bytes) {
+                    return Some(strip_string_delimiters(text));
+                }
+            }
+        }
+    }
+    // 2. Comment block directly above the definition.
+    let mut target_row = node.start_position().row;
+    let mut lines: Vec<String> = Vec::new();
+    let mut prev = node.prev_sibling();
+    while let Some(sib) = prev {
+        if sib.kind() != "comment" {
+            break;
+        }
+        // Only comments touching the definition (or the growing block) count.
+        if sib.end_position().row + 1 < target_row {
+            break;
+        }
+        if let Ok(text) = sib.utf8_text(bytes) {
+            lines.push(strip_comment_markers(text));
+        }
+        target_row = sib.start_position().row;
+        prev = sib.prev_sibling();
+    }
+    if lines.is_empty() {
+        return None;
+    }
+    lines.reverse();
+    let joined = lines.join(" ").trim().to_string();
+    if joined.is_empty() {
+        None
+    } else {
+        Some(joined)
+    }
+}
+
+/// Strip surrounding quotes from a string-literal docstring.
+fn strip_string_delimiters(text: &str) -> String {
+    let trimmed = text.trim();
+    let without_prefixes = trimmed
+        .trim_start_matches(|c: char| c == 'r' || c == 'f' || c == 'b');
+    let inner = without_prefixes
+        .strip_prefix("\"\"\"")
+        .and_then(|t| t.strip_suffix("\"\"\""))
+        .or_else(|| without_prefixes.strip_prefix("'''").and_then(|t| t.strip_suffix("'''")))
+        .or_else(|| without_prefixes.strip_prefix('"').and_then(|t| t.strip_suffix('"')))
+        .or_else(|| without_prefixes.strip_prefix('\'').and_then(|t| t.strip_suffix('\'')))
+        .unwrap_or(trimmed);
+    inner.trim().to_string()
+}
+
+/// Strip line/block comment markers, keeping the prose.
+fn strip_comment_markers(text: &str) -> String {
+    text.lines()
+        .map(|line| {
+            let line = line.trim();
+            let stripped = line
+                .strip_prefix("///")
+                .or_else(|| line.strip_prefix("//!"))
+                .or_else(|| line.strip_prefix("//"))
+                .or_else(|| line.strip_prefix("/**"))
+                .or_else(|| line.strip_prefix("/*"))
+                .or_else(|| line.strip_prefix('*'))
+                .or_else(|| line.strip_prefix('#'))
+                .or_else(|| line.strip_prefix("--"))
+                .unwrap_or(line);
+            let stripped = stripped.strip_suffix("*/").unwrap_or(stripped);
+            stripped.trim()
+        })
+        .filter(|line| !line.is_empty())
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+/// Map a language key to its tree-sitter grammar, if available.
+fn grammar_for(language: &str) -> Option<tree_sitter::Language> {
     let lang = match language {
         "rust" => tree_sitter_rust::LANGUAGE.into(),
         "python" => tree_sitter_python::LANGUAGE.into(),
@@ -545,11 +667,74 @@ pub fn extract_with_tree_sitter(content: &str, language: &str) -> Option<ASTData
         "bash" => tree_sitter_bash::LANGUAGE.into(),
         _ => return None,
     };
-    
-    parser.set_language(&lang).ok()?;
-    let tree = parser.parse(content, None)?;
+    Some(lang)
+}
+
+thread_local! {
+    /// Reusable parser instances keyed by language. Constructing a parser and
+    /// binding a grammar on every call dominated small-file processing cost,
+    /// so each worker thread keeps one configured parser per language.
+    static PARSER_CACHE: std::cell::RefCell<HashMap<String, tree_sitter::Parser>> =
+        std::cell::RefCell::new(HashMap::new());
+}
+
+/// Parse `content` with the grammar for `language`, reusing a cached parser.
+pub fn parse_with_cached_grammar(content: &str, language: &str) -> Option<tree_sitter::Tree> {
+    let lang = grammar_for(language)?;
+    PARSER_CACHE.with(|cache| {
+        let mut cache = cache.borrow_mut();
+        let parser = cache
+            .entry(language.to_string())
+            .or_insert_with(tree_sitter::Parser::new);
+        parser.set_language(&lang).ok()?;
+        parser.parse(content, None)
+    })
+}
+
+/// Parse once and return both the tree and the file-level signals, so callers
+/// can reuse the tree for per-node extraction without re-parsing.
+pub fn extract_tree_with_signals(
+    content: &str,
+    language: &str,
+) -> Option<(tree_sitter::Tree, ASTData)> {
+    let tree = parse_with_cached_grammar(content, language)?;
+    let data = walk_tree_sitter(tree.root_node(), content, language);
+    Some((tree, data))
+}
+
+/// Extract structural signals for one definition node (given its byte range)
+/// from an already-parsed tree, avoiding a second parse of the snippet text.
+/// Offsets in the result are normalized to be subtree-relative.
+pub fn extract_subtree_signals(
+    tree: &tree_sitter::Tree,
+    content: &str,
+    language: &str,
+    start_byte: usize,
+    end_byte: usize,
+) -> Option<ASTData> {
     let root = tree.root_node();
-    
+    let end = end_byte.saturating_sub(1).max(start_byte);
+    let node = root.named_descendant_for_byte_range(start_byte, end)?;
+    let base_byte = node.start_byte();
+    let base_row = node.start_position().row;
+
+    let mut data = walk_tree_sitter(node, content, language);
+    for def in &mut data.defined_nodes {
+        def.start_byte = def.start_byte.saturating_sub(base_byte);
+        def.end_byte = def.end_byte.saturating_sub(base_byte);
+        def.start_line = def.start_line.saturating_sub(base_row);
+        def.end_line = def.end_line.saturating_sub(base_row);
+    }
+    Some(data)
+}
+
+pub fn extract_with_tree_sitter(content: &str, language: &str) -> Option<ASTData> {
+    let tree = parse_with_cached_grammar(content, language)?;
+    Some(walk_tree_sitter(tree.root_node(), content, language))
+}
+
+/// Walk the tree rooted at `root`, collecting structural signals into `ASTData`.
+fn walk_tree_sitter(root: tree_sitter::Node, content: &str, language: &str) -> ASTData {
     let mut data = ASTData::default();
     data.language = Some(language.to_string());
     
@@ -558,6 +743,8 @@ pub fn extract_with_tree_sitter(content: &str, language: &str) -> Option<ASTData
     let bytes = content.as_bytes();
     // Track seen type refs per chunk to avoid duplicates
     let mut seen_type_refs: HashSet<String> = HashSet::new();
+    // Track seen qualified calls per chunk to avoid duplicates
+    let mut seen_qualified: HashSet<String> = HashSet::new();
     
     while let Some(node) = stack.pop() {
         let kind = node.kind();
@@ -566,31 +753,42 @@ pub fn extract_with_tree_sitter(content: &str, language: &str) -> Option<ASTData
         if kind.contains("function") || kind.contains("method") || kind.contains("constructor") {
             if let Some(name_node) = node.child_by_field_name("name") {
                 if let Ok(name) = name_node.utf8_text(bytes) {
-                    data.defined_nodes.push(crate::graph::models::ASTNodeDef {
-                        name: name.to_string(),
-                        node_type: "Function".to_string(),
-                        start_byte: node.start_byte(),
-                        end_byte: node.end_byte(),
-                        start_line: node.start_position().row,
-                        end_line: node.end_position().row,
-                    });
+                    data.defined_nodes
+                        .push(make_defined_node(&node, bytes, "Function", name));
                 }
             }
         } else if kind.contains("class") || kind.contains("struct") || kind.contains("trait") || kind.contains("enum") || kind.contains("interface") {
             if let Some(name_node) = node.child_by_field_name("name") {
                 if let Ok(name) = name_node.utf8_text(bytes) {
-                    data.defined_nodes.push(crate::graph::models::ASTNodeDef {
-                        name: name.to_string(),
-                        node_type: "Class".to_string(),
-                        start_byte: node.start_byte(),
-                        end_byte: node.end_byte(),
-                        start_line: node.start_position().row,
-                        end_line: node.end_position().row,
-                    });
+                    data.defined_nodes
+                        .push(make_defined_node(&node, bytes, "Class", name));
                 }
             }
         }
         
+        // Capture qualified call chains verbatim before the per-language arms
+        // collapse them to leaf names (used for cross-file disambiguation).
+        if kind.contains("call") || kind.contains("invocation") {
+            let qualified = node
+                .child_by_field_name("function")
+                .and_then(|n| n.utf8_text(bytes).ok())
+                .map(|s| s.trim().to_string())
+                .or_else(|| {
+                    let name_node = node.child_by_field_name("name")?;
+                    let obj_node = node.child_by_field_name("object")?;
+                    let name_text = name_node.utf8_text(bytes).ok()?.trim().to_string();
+                    let obj_text = obj_node.utf8_text(bytes).ok()?.trim().to_string();
+                    Some(format!("{}.{}", obj_text, name_text))
+                });
+            if let Some(text) = qualified {
+                let is_qualified =
+                    text.contains('.') || text.contains("::") || text.contains("->");
+                if is_qualified && seen_qualified.insert(text.clone()) {
+                    data.qualified_calls.push(text);
+                }
+            }
+        }
+
         match language {
             "rust" => {
                 match kind {
@@ -1350,7 +1548,7 @@ pub fn extract_with_tree_sitter(content: &str, language: &str) -> Option<ASTData
         }
     }
     
-    Some(data)
+    data
 }
 
 /// Helper: get name text from a node's "name" field.

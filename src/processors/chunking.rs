@@ -40,7 +40,11 @@ pub fn extract_ast_chunks(
     content: &str,
     language: &str,
 ) -> Vec<Chunk> {
-    let mut ast_data = crate::processors::graph::extract_with_tree_sitter(content, language);
+    // Parse the file once; the tree is reused for per-node signal extraction
+    // below instead of re-parsing every definition snippet.
+    let parsed = crate::processors::graph::extract_tree_with_signals(content, language);
+    let mut ast_data = parsed.as_ref().map(|(_, data)| data.clone());
+    let parsed_tree = parsed.map(|(tree, _)| tree);
 
     let chunk_hash = compute_normalized_hash(content, language);
     let mut chunks = Vec::new();
@@ -123,8 +127,23 @@ pub fn extract_ast_chunks(
                     // The line numbers from tree-sitter are 0-indexed
                     node_chunk.metadata.line_range = Some((node.start_line + 1, node.end_line + 1));
                     
-                    // Extract ASTData specifically for this chunk so SymbolIndex creates granular edges
-                    if let Some(snippet_ast) = crate::processors::graph::extract_with_tree_sitter(snippet, language) {
+                    // Derive this chunk's ASTData from the file-level parse so
+                    // SymbolIndex creates granular edges without re-parsing.
+                    let snippet_ast = parsed_tree
+                        .as_ref()
+                        .and_then(|tree| {
+                            crate::processors::graph::extract_subtree_signals(
+                                tree,
+                                content,
+                                language,
+                                node.start_byte,
+                                node.end_byte,
+                            )
+                        })
+                        .or_else(|| {
+                            crate::processors::graph::extract_with_tree_sitter(snippet, language)
+                        });
+                    if let Some(snippet_ast) = snippet_ast {
                         node_chunk.metadata.ast_data = Some(snippet_ast);
                     }
                     
