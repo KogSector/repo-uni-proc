@@ -58,7 +58,7 @@ async fn main() -> anyhow::Result<()> {
                 host: "0.0.0.0".to_string(),
                 port: 8090,
                 workers: 4,
-                auth_middleware_url: "http://auth-middleware:8080".to_string(),
+                auth_middleware_url: "http://auth-middleware:3010".to_string(),
             },
             database: unified_processor_lib::core::config::DatabaseConfig {
                 database_url: "postgresql://user:password@localhost:5432/dbname".to_string(),

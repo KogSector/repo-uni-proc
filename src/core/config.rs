@@ -181,7 +181,7 @@ impl Config {
             .unwrap_or(8090);
 
         let auth_middleware_url = std::env::var("AUTH_MIDDLEWARE_URL")
-            .unwrap_or_else(|_| "http://auth-middleware:8080".to_string());
+            .unwrap_or_else(|_| "http://auth-middleware:3010".to_string());
         let workers = std::env::var("WORKERS")
             .unwrap_or_else(|_| "4".to_string())
             .parse()
